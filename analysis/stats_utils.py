@@ -55,7 +55,7 @@ def compute_breakdown_posterior(model, X, data, orders, max_idx, logprior, break
 def compute_pdf_median_and_bounds(x, pdf, cred):
     bounds = np.zeros((len(cred), 2))
     for i, p in enumerate(cred):
-        bounds[i] = gm.hpd_pdf(pdf=pdf, alpha=p, x=x, disp=False)
+        bounds[i] = gm.hpd_pdf(pdf=pdf, alpha=p, x=x)
     median = gm.median_pdf(pdf=pdf, x=x)
     return median, bounds
 
@@ -117,22 +117,31 @@ def joint_plot(ratio=1, height=3):
     return fig, ax_joint, ax_marg_x, ax_marg_y
 
 
-def compute_2d_posterior(model, X, data, orders, max_idx, breakdown, ls, logprior=None):
+def compute_2d_posterior(model, X, data, orders, max_idx, breakdown, ls=None, logprior=None):
     model.fit(X, data[:, :max_idx + 1], orders=orders[:max_idx + 1])
+    if ls is None:
+        ls = np.exp(model.coeffs_process.kernel_.theta)
+        print('Setting ls to', ls)
+    ls = np.atleast_1d(ls)
     log_like = np.array([
         [model.log_marginal_likelihood(theta=[np.log(ls_), ], breakdown=lb) for lb in breakdown] for ls_ in ls
     ])
     if logprior is not None:
         log_like += logprior
     joint_pdf = np.exp(log_like - np.max(log_like))
+    # print(joint_pdf)
     # like /= np.trapz(like, x=Lb)  # Normalize
 
-    ratio_pdf = np.trapz(joint_pdf, x=ls, axis=0)
+    if len(ls) > 1:
+        ratio_pdf = np.trapz(joint_pdf, x=ls, axis=0)
+    else:
+        ratio_pdf = np.squeeze(joint_pdf)
     ls_pdf = np.trapz(joint_pdf, x=breakdown, axis=-1)
 
     # Normalize them
     ratio_pdf /= np.trapz(ratio_pdf, x=breakdown, axis=0)
-    ls_pdf /= np.trapz(ls_pdf, x=ls, axis=0)
+    if len(ls) > 1:
+        ls_pdf /= np.trapz(ls_pdf, x=ls, axis=0)
     return joint_pdf, ratio_pdf, ls_pdf
 
 
@@ -237,11 +246,16 @@ def pdfplot(
                 color = colors[i]
             df = data[mask]
             # print(df)
+            # print(df)
             # print(y_val, hue_val)
             x_vals = df[x].values
-            pdf_vals = df[pdf].values
+            pdf_vals = df[pdf].values.copy()
+            pdf_vals /= np.trapz(pdf_vals, x_vals)
             # Assumes normalized
-            median, bounds = compute_pdf_median_and_bounds(x_vals, pdf_vals, cred=[0.68, 0.95])
+            median, bounds = compute_pdf_median_and_bounds(
+                x=x_vals, pdf=pdf_vals, cred=[0.68, 0.95]
+            )
+            # print(bounds)
             pdf_vals = pdf_vals / (1. * np.max(pdf_vals))  # Scale so they're all the same height
             # Make the lines taper off
             x_vals = x_vals[pdf_vals > cut]
@@ -279,6 +293,20 @@ def pdfplot(
     return ax
 
 
+def joint2dplot(ls_df, breakdown_df, joint_df, system, order):
+    ls_df = ls_df[(ls_df['system'] == system) & (ls_df['Order'] == order)]
+    breakdown_df = breakdown_df[(breakdown_df['system'] == system) & (breakdown_df['Order'] == order)]
+    joint_df = joint_df[(joint_df['system'] == system) & (joint_df['Order'] == order)]
+    ls = ls_df['$\ell$']
+    breakdown = breakdown_df['$\Lambda_b$ (MeV)']
+    joint = joint_df['pdf'].values.reshape(len(ls), len(breakdown))
+    fig = plot_2d_joint(
+        ls_vals=ls, Lb_vals=breakdown, like_2d=joint,
+        like_ls=ls_df['pdf'].values, like_Lb=breakdown_df['pdf'].values
+    )
+    return fig
+
+
 def matter_pdf_dfs(analyses, max_idx, breakdown, ls, logprior=None):
     dfs_breakdown = []
     dfs_ls = []
@@ -293,10 +321,11 @@ def matter_pdf_dfs(analyses, max_idx, breakdown, ls, logprior=None):
             df_breakdown['system'] = fr'${analysis.system_math_string}$'
             dfs_breakdown.append(df_breakdown)
 
-            df_ls = pd.DataFrame(np.array([ls, ls_pdf]).T, columns=[r'$\ell$', 'pdf'])
-            df_ls['Order'] = fr'N$^{idx}$LO'
-            df_ls['system'] = fr'${analysis.system_math_string}$'
-            dfs_ls.append(df_ls)
+            if ls is not None:
+                df_ls = pd.DataFrame(np.array([ls, ls_pdf]).T, columns=[r'$\ell$', 'pdf'])
+                df_ls['Order'] = fr'N$^{idx}$LO'
+                df_ls['system'] = fr'${analysis.system_math_string}$'
+                dfs_ls.append(df_ls)
 
             X = gm.cartesian(ls, breakdown)
             df_joint = pd.DataFrame(X, columns=[r'$\ell$', r'$\Lambda_b$ (MeV)'])
@@ -305,7 +334,9 @@ def matter_pdf_dfs(analyses, max_idx, breakdown, ls, logprior=None):
             df_joint['system'] = fr'${analysis.system_math_string}$'
             dfs_joint.append(df_joint)
     df_breakdown = pd.concat(dfs_breakdown, ignore_index=True)
-    df_ls = pd.concat(dfs_ls, ignore_index=True)
+    df_ls = None
+    if ls is not None:
+        df_ls = pd.concat(dfs_ls, ignore_index=True)
     df_joint = pd.concat(dfs_joint, ignore_index=True)
     return df_joint, df_breakdown, df_ls
 
@@ -394,8 +425,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         difference='S_2',
     )
 
-    def __init__(self, X, y, orders, train, valid, ref, ratio, *, system='neutron',
-                 fit_n2lo=None, fit_n3lo=None, Lambda=None, body=None, savefig=False, **kwargs):
+    def __init__(self, X, y, orders, train, valid, ref, ratio, density, *, system='neutron',
+                 fit_n2lo=None, fit_n3lo=None, Lambda=None, body=None, savefigs=False, **kwargs):
         super().__init__(
             X, y, orders, train, valid, ref, ratio, **kwargs)
         self.system = system
@@ -403,9 +434,14 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         self.fit_n3lo = fit_n3lo
         self.Lambda = Lambda
         self.body = body
-        self.savefig = savefig
+        self.savefigs = savefigs
         self.fig_path = 'figures'
         self.system_math_string = self.system_math_strings[system]
+        self.density = density
+
+        cmaps = [plt.get_cmap(name) for name in ['Oranges', 'Greens', 'Blues', 'Reds']]
+        colors = [cmap(0.55 - 0.1 * (i == 0)) for i, cmap in enumerate(cmaps)]
+        self.colors = colors
 
     def compute_density(self, kf):
         degeneracy = None
@@ -470,11 +506,12 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         return full_name
 
     def plot_coefficients(self, breakdown, ax=None):
-        coeffs = self.compute_coefficients(breakdown=breakdown)
+        coeffs = self.compute_coefficients(momentum=self.X, breakdown=breakdown)
         if ax is None:
             fig, ax = plt.subplots(figsize=(3.4, 3.4))
         kf = self.X.ravel()
-        d = self.compute_density(kf)
+        # d = self.compute_density(kf)
+        d = self.density
         ax2 = ax.twiny()
         train = self.train
         colors = self.colors
@@ -482,8 +519,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             ax.plot(kf, coeffs[:, i], c=colors[i], label=fr'$c_{{{n}}}$')
             ax.plot(kf[train], coeffs[train, i], marker='o', ls='', c=colors[i])
 
-        ax.legend()
-        ax2.plot(d, np.zeros_like(d), ls='--', c=gray, zorder=0)  # Dummy data to set up ticks
+        ax2.plot(d, np.zeros_like(d), ls='', c=gray, zorder=-1)  # Dummy data to set up ticks
+        ax.axhline(0, 0, 1, ls='--', c=gray, zorder=-1)
         ax2.set_xlabel(r'Density $n$ (fm$^{-3}$)')
         # ax.set_ylabel(r'Energy per Neutron $E/N$')
         if self.system == 'neutron':
@@ -497,6 +534,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         y_label += fr'${self.system_math_strings[self.system]}$'
         ax.set_ylabel(y_label)
         ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
+        ax.legend()
 
         if self.savefig:
             fig = plt.gcf()
