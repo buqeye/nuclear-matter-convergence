@@ -6,8 +6,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import docrep
 import seaborn as sns
+from seaborn import utils
 import pandas as pd
-from matter import nuclear_density, fermi_momentum
+from matter import nuclear_density, fermi_momentum, ratio_kf
 from os.path import join
 
 
@@ -31,7 +32,8 @@ def compute_breakdown_posterior(model, X, data, orders, max_idx, logprior, break
     orders
     max_idx
     logprior
-    Lb
+    breakdowns
+    lengths
 
     Returns
     -------
@@ -60,12 +62,13 @@ def compute_pdf_median_and_bounds(x, pdf, cred):
     return median, bounds
 
 
-def draw_summary_statistics(bounds68, bounds95, median, height=0., ax=None):
+def draw_summary_statistics(bounds68, bounds95, median, height=0., linewidth=1., ax=None):
     if ax is None:
         ax = plt.gca()
-    ax.plot(bounds68, [height, height], c=darkgray, lw=6, solid_capstyle='round')
-    ax.plot(bounds95, [height, height], c=darkgray, lw=2, solid_capstyle='round')
-    ax.plot([median], [height], c='white', marker='o', zorder=10, markersize=3)
+    ax.plot(bounds68, [height, height], c=darkgray, lw=3*linewidth, solid_capstyle='round')
+    ax.plot(bounds95, [height, height], c=darkgray, lw=linewidth, solid_capstyle='round')
+    ax.plot([median], [height], c='white', marker='o', zorder=10, markersize=1.5*linewidth)
+    # ax.scatter([median], [height], zorder=10, color='white', edgecolor='white', s=(linewidth * 2)**2)
     return ax
 
 
@@ -76,7 +79,7 @@ def offset_xlabel(ax):
     return ax
 
 
-def joint_plot(ratio=1, height=3):
+def joint_plot(ratio=1, height=3.):
     """Taken from Seaborn JointGrid"""
     fig = plt.figure(figsize=(height, height))
     gsp = plt.GridSpec(ratio+1, ratio+1)
@@ -100,7 +103,6 @@ def joint_plot(ratio=1, height=3):
     ax_marg_y.xaxis.grid(False)
 
     # Make the grid look nice
-    from seaborn import utils
     # utils.despine(fig)
     utils.despine(ax=ax_marg_x, left=True)
     utils.despine(ax=ax_marg_y, bottom=True)
@@ -118,6 +120,25 @@ def joint_plot(ratio=1, height=3):
 
 
 def compute_2d_posterior(model, X, data, orders, max_idx, breakdown, ls=None, logprior=None):
+    R"""
+
+    Parameters
+    ----------
+    model : gm.TruncationGP
+    X : ndarray, shape = (N,None)
+    data : ndarray, shape = (N,[n_curves])
+    orders : ndarray, shape = (n_curves,)
+    max_idx : ndarray, shape = (n_orders,)
+    breakdown : ndarray, shape = (n_breakdown,)
+    ls : ndarray, shape = (n_ls,)
+    logprior : ndarray, optional, shape = (n_ls, n_breakdown)
+
+    Returns
+    -------
+    joint_pdf : ndarray
+    ratio_pdf : ndarray
+    ls_pdf : ndarray
+    """
     model.fit(X, data[:, :max_idx + 1], orders=orders[:max_idx + 1])
     if ls is None:
         ls = np.exp(model.coeffs_process.kernel_.theta)
@@ -129,8 +150,6 @@ def compute_2d_posterior(model, X, data, orders, max_idx, breakdown, ls=None, lo
     if logprior is not None:
         log_like += logprior
     joint_pdf = np.exp(log_like - np.max(log_like))
-    # print(joint_pdf)
-    # like /= np.trapz(like, x=Lb)  # Normalize
 
     if len(ls) > 1:
         ratio_pdf = np.trapz(joint_pdf, x=ls, axis=0)
@@ -145,11 +164,14 @@ def compute_2d_posterior(model, X, data, orders, max_idx, breakdown, ls=None, lo
     return joint_pdf, ratio_pdf, ls_pdf
 
 
-def plot_2d_joint(ls_vals, Lb_vals, like_2d, like_ls, like_Lb, data_str=r'\vec{\mathbf{y}}_k)'):
-
+def plot_2d_joint(ls_vals, Lb_vals, like_2d, like_ls, like_Lb, data_str=r'\vec{\mathbf{y}}_k)',
+                  xlabel=None, ylabel=None):
+    if data_str is None:
+        data_str = r'\vec{\mathbf{y}}_k)'
+    from matplotlib.cm import get_cmap
     with plt.rc_context({"text.usetex": True, "text.latex.preview": True}):
         cmap_name = 'Blues'
-        cmap = mpl.cm.get_cmap(cmap_name)
+        cmap = get_cmap(cmap_name)
 
         # Setup axes
         fig, ax_joint, ax_marg_x, ax_marg_y = joint_plot(ratio=5, height=3.4)
@@ -168,15 +190,16 @@ def plot_2d_joint(ls_vals, Lb_vals, like_2d, like_ls, like_Lb, data_str=r'\vec{\
                                like_ls, facecolor=cmap(0.2), lw=1)
 
         # Formatting
-        ax_joint.set_xlabel(r'$\ell$')
-        ax_joint.set_ylabel(r'$\Lambda_b$')
+        ax_joint.set_xlabel(xlabel)
+        ax_joint.set_ylabel(ylabel)
         ax_joint.margins(x=0, y=0.)
-        ax_marg_x.set_ylim(bottom=0);
-        ax_marg_y.set_xlim(left=0);
-        ax_joint.text(0.95, 0.95, rf'pr$(\ell, \Lambda_b \,|\, {data_str}$)', ha='right', va='top',
-                      transform=ax_joint.transAxes,
-                      bbox=text_bbox
-                     )
+        ax_marg_x.set_ylim(bottom=0)
+        ax_marg_y.set_xlim(left=0)
+        ax_joint.text(
+            0.95, 0.95, rf'pr$(\ell, \Lambda_b \,|\, {data_str}$)', ha='right', va='top',
+            transform=ax_joint.transAxes,
+            bbox=text_bbox
+        )
         ax_joint.tick_params(direction='in')
 
         plt.show()
@@ -191,19 +214,33 @@ def pdfplot(
 
     Parameters
     ----------
-    x :
-    y :
-    pdf :
-    data :
-    hue :
-    order :
-    hue_order :
-    cut :
-    linewidth :
-    palette :
-    saturation :
+    x : str
+        The column of the DataFrame to use as the x axis. The pdfs are a function of this variable.
+    y : str
+        The column of the DataFrame to use as the y axis. A pdf will be drawn for each unique value in data[y].
+    pdf : str
+        The column of the DataFrame to use as the pdf values.
+    data : pd.DataFrame
+        The DataFrame containing the pdf data
+    hue : str, optional
+        Splits data[y] up by the value of hue, and plots each pdf separately as a specific color.
+    order : list, optional
+        The order in which to plot the y values, from top to bottom
+    hue_order : list, optional
+        The order in which to plot the hue values, from top to bottom.
+    cut : float, optional
+        The value below which the pdfs will not be shown. This is taken as a fraction of the total height of each pdf.
+    linewidth : float, optional
+        The linewidth of the pdf lines
+    palette : str, list, optional
+        The color palette to fill underneath the curves
+    saturation : float, optional
+        The level of saturation for the color palette. Only works if the palette is a string recognized by
+        sns.color_palette
     ax : mpl.axes.Axis
-    margin :
+        The axis on which to draw the plot
+    margin : float, optional
+        The vertical margin between each pdf.
     """
     if ax is None:
         fig, ax = plt.subplots(1, 1, figsize=(3.4, 3.4))
@@ -245,9 +282,6 @@ def pdfplot(
             else:
                 color = colors[i]
             df = data[mask]
-            # print(df)
-            # print(df)
-            # print(y_val, hue_val)
             x_vals = df[x].values
             pdf_vals = df[pdf].values.copy()
             pdf_vals /= np.trapz(pdf_vals, x_vals)
@@ -255,23 +289,22 @@ def pdfplot(
             median, bounds = compute_pdf_median_and_bounds(
                 x=x_vals, pdf=pdf_vals, cred=[0.68, 0.95]
             )
-            # print(bounds)
-            pdf_vals = pdf_vals / (1. * np.max(pdf_vals))  # Scale so they're all the same height
+            pdf_vals /= (1. * np.max(pdf_vals))  # Scale so they're all the same height
             # Make the lines taper off
             x_vals = x_vals[pdf_vals > cut]
             pdf_vals = pdf_vals[pdf_vals > cut]
             offset -= (1 + margin)
-            # if ((i != 0) | (j != 0)):
-            #     offset -= margin
+
             # Plot and fill posterior, and add summary statistics
             ax.plot(x_vals, pdf_vals + offset, c=darkgray, lw=linewidth)
             ax.fill_between(x_vals, offset, pdf_vals + offset, facecolor=color)
-            draw_summary_statistics(*bounds, median, ax=ax, height=offset)
+            draw_summary_statistics(*bounds, median, ax=ax, height=offset, linewidth=1.5*linewidth)
         min_height_hue = offset
         minor_ticks.append(offset - margin/2.)
         major_ticks.append((max_height_hue + min_height_hue) / 2.)
 
     minor_ticks = minor_ticks[:-1]
+
     # Plot formatting
     ax.set_yticks(major_ticks, minor=False)
     ax.set_yticks(minor_ticks, minor=True)
@@ -279,10 +312,7 @@ def pdfplot(
     ax.tick_params(axis='both', which='both', direction='in')
     ax.tick_params(which='major', length=0)
     ax.tick_params(which='minor', length=7, right=True)
-    # ax.set_xlim(0, 1200)
-    # ax.set_xticks([0, 300, 600, 900, 1200])
     ax.set_xlabel(x)
-    # ax.grid(axis='x')
     ax.set_axisbelow(True)
 
     if hue is not None:
@@ -293,52 +323,19 @@ def pdfplot(
     return ax
 
 
-def joint2dplot(ls_df, breakdown_df, joint_df, system, order):
+def joint2dplot(ls_df, breakdown_df, joint_df, system, order, data_str=None):
     ls_df = ls_df[(ls_df['system'] == system) & (ls_df['Order'] == order)]
     breakdown_df = breakdown_df[(breakdown_df['system'] == system) & (breakdown_df['Order'] == order)]
     joint_df = joint_df[(joint_df['system'] == system) & (joint_df['Order'] == order)]
-    ls = ls_df['$\ell$']
-    breakdown = breakdown_df['$\Lambda_b$ (MeV)']
+    ls = ls_df[r'$\ell$ (fm$^{-1}$)']
+    breakdown = breakdown_df[r'$\Lambda_b$ (MeV)']
     joint = joint_df['pdf'].values.reshape(len(ls), len(breakdown))
     fig = plot_2d_joint(
         ls_vals=ls, Lb_vals=breakdown, like_2d=joint,
-        like_ls=ls_df['pdf'].values, like_Lb=breakdown_df['pdf'].values
+        like_ls=ls_df['pdf'].values, like_Lb=breakdown_df['pdf'].values,
+        data_str=data_str, xlabel=r'$\ell$ (fm$^{-1}$)', ylabel=r'$\Lambda_b$ (MeV)',
     )
     return fig
-
-
-def matter_pdf_dfs(analyses, max_idx, breakdown, ls, logprior=None):
-    dfs_breakdown = []
-    dfs_ls = []
-    dfs_joint = []
-    for analysis in analyses:
-        for idx in np.atleast_1d(max_idx):
-            joint_pdf, breakdown_pdf, ls_pdf = analysis.compute_breakdown_ls_posterior(
-                breakdown, ls, max_idx=idx, logprior=logprior)
-
-            df_breakdown = pd.DataFrame(np.array([breakdown, breakdown_pdf]).T, columns=[r'$\Lambda_b$ (MeV)', 'pdf'])
-            df_breakdown['Order'] = fr'N$^{idx}$LO'
-            df_breakdown['system'] = fr'${analysis.system_math_string}$'
-            dfs_breakdown.append(df_breakdown)
-
-            if ls is not None:
-                df_ls = pd.DataFrame(np.array([ls, ls_pdf]).T, columns=[r'$\ell$', 'pdf'])
-                df_ls['Order'] = fr'N$^{idx}$LO'
-                df_ls['system'] = fr'${analysis.system_math_string}$'
-                dfs_ls.append(df_ls)
-
-            X = gm.cartesian(ls, breakdown)
-            df_joint = pd.DataFrame(X, columns=[r'$\ell$', r'$\Lambda_b$ (MeV)'])
-            df_joint['pdf'] = joint_pdf.ravel()
-            df_joint['Order'] = fr'N$^{idx}$LO'
-            df_joint['system'] = fr'${analysis.system_math_string}$'
-            dfs_joint.append(df_joint)
-    df_breakdown = pd.concat(dfs_breakdown, ignore_index=True)
-    df_ls = None
-    if ls is not None:
-        df_ls = pd.concat(dfs_ls, ignore_index=True)
-    df_joint = pd.concat(dfs_joint, ignore_index=True)
-    return df_joint, df_breakdown, df_ls
 
 
 @docstrings.get_sectionsf('ConvergenceAnalysis')
@@ -376,17 +373,17 @@ class ConvergenceAnalysis:
         self.ref = ref
         self.excluded = excluded
         if excluded is None:
-            ignore_mask = np.ones_like(orders, dtype=bool)
+            excluded_mask = np.ones_like(orders, dtype=bool)
         else:
-            ignore_mask = ~np.isin(orders, excluded)
-        self.ignore_mask = ignore_mask
+            excluded_mask = ~np.isin(orders, excluded)
+        self.excluded_mask = excluded_mask
 
         self.colors = colors
         self.kwargs = kwargs
 
     def compute_coefficients(self, **kwargs):
         ratio = self.ratio(**kwargs)
-        c = gm.coefficients(self.y, ratio, self.ref, self.orders)[:, self.ignore_mask]
+        c = gm.coefficients(self.y, ratio, self.ref, self.orders)[:, self.excluded_mask]
         return c
 
     def plot_coefficients(self, *args, **kwargs):
@@ -406,12 +403,13 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
     Parameters
     ----------
     %(ConvergenceAnalysis.parameters)s
+    density : ndarray
     system : str
     fit_n2lo : str
     fit_n3lo : str
     Lambda : int
     body : str
-    savefig : bool
+    savefigs : bool
     """
 
     system_strings = dict(
@@ -424,9 +422,15 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         symmetric='E/A',
         difference='S_2',
     )
+    ratio_map = dict(
+        kf=ratio_kf
+    )
 
     def __init__(self, X, y, orders, train, valid, ref, ratio, density, *, system='neutron',
                  fit_n2lo=None, fit_n3lo=None, Lambda=None, body=None, savefigs=False, **kwargs):
+
+        self.ratio_str = ratio
+        ratio = self.ratio_map[ratio]
         super().__init__(
             X, y, orders, train, valid, ref, ratio, **kwargs)
         self.system = system
@@ -438,6 +442,15 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         self.fig_path = 'figures'
         self.system_math_string = self.system_math_strings[system]
         self.density = density
+        self.df_joint = None
+        self.df_breakdown = None
+        self.df_ls = None
+        self.breakdown = None
+        self.breakdown_min, self.breakdown_max, self.breakdown_num = None, None, None
+        self.ls_min, self.ls_max, self.ls_num = None, None, None
+        self.ls = None
+        self.max_idx = None
+        self.logprior = None
 
         cmaps = [plt.get_cmap(name) for name in ['Oranges', 'Greens', 'Blues', 'Reds']]
         colors = [cmap(0.55 - 0.1 * (i == 0)) for i, cmap in enumerate(cmaps)]
@@ -465,6 +478,63 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
         return fermi_momentum(density, degeneracy)
 
+    def setup_posteriors(self, max_idx, breakdown_min, breakdown_max, breakdown_num, ls_min, ls_max, ls_num,
+                         logprior=None):
+        R"""
+
+        Parameters
+        ----------
+        max_idx
+        breakdown
+        ls
+        logprior
+
+        Returns
+        -------
+
+        """
+        dfs_breakdown = []
+        dfs_ls = []
+        dfs_joint = []
+        self.breakdown_min, self.breakdown_max, self.breakdown_num = breakdown_min, breakdown_max, breakdown_num
+        self.ls_min, self.ls_max, self.ls_num = ls_min, ls_max, ls_num
+        breakdown = np.linspace(breakdown_min, breakdown_max, breakdown_num)
+        ls = np.linspace(ls_min, ls_max, ls_num)
+        for idx in np.atleast_1d(max_idx):
+            joint_pdf, breakdown_pdf, ls_pdf = self.compute_breakdown_ls_posterior(
+                breakdown, ls, max_idx=idx, logprior=logprior)
+
+            df_breakdown = pd.DataFrame(np.array([breakdown, breakdown_pdf]).T, columns=[r'$\Lambda_b$ (MeV)', 'pdf'])
+            df_breakdown['Order'] = fr'N$^{idx}$LO'
+            df_breakdown['system'] = fr'${self.system_math_string}$'
+            dfs_breakdown.append(df_breakdown)
+
+            if ls is not None:
+                df_ls = pd.DataFrame(np.array([ls, ls_pdf]).T, columns=[r'$\ell$ (fm$^{-1}$)', 'pdf'])
+                df_ls['Order'] = fr'N$^{idx}$LO'
+                df_ls['system'] = fr'${self.system_math_string}$'
+                dfs_ls.append(df_ls)
+
+            X = gm.cartesian(ls, breakdown)
+            df_joint = pd.DataFrame(X, columns=[r'$\ell$ (fm$^{-1}$)', r'$\Lambda_b$ (MeV)'])
+            df_joint['pdf'] = joint_pdf.ravel()
+            df_joint['Order'] = fr'N$^{idx}$LO'
+            df_joint['system'] = fr'${self.system_math_string}$'
+            dfs_joint.append(df_joint)
+        df_breakdown = pd.concat(dfs_breakdown, ignore_index=True)
+        df_ls = None
+        if ls is not None:
+            df_ls = pd.concat(dfs_ls, ignore_index=True)
+        df_joint = pd.concat(dfs_joint, ignore_index=True)
+        self.breakdown = breakdown
+        self.ls = ls
+        self.logprior = logprior
+        self.max_idx = max_idx
+        self.df_joint = df_joint
+        self.df_breakdown = df_breakdown
+        self.df_ls = df_ls
+        return df_joint, df_breakdown, df_ls
+
     def compute_underlying_graphical_diagnostic(self):
         coeffs = self.compute_coefficients()
         process = gm.ConjugateGaussianProcess(**self.kwargs)
@@ -483,7 +553,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         )
         return joint_pdf, Lb_pdf, ls_pdf
 
-    def figure_name(self, prefix, breakdown=None):
+    def figure_name(self, prefix, breakdown=None, ls=None):
         body = self.body
         fit_n2lo = self.fit_n2lo
         fit_n3lo = self.fit_n3lo
@@ -496,12 +566,29 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             full_name += f'_fits-{fit_n2lo}-{fit_n3lo}'
         else:
             full_name += f'_fits-0-0'
-        full_name += f'_Lambda-{Lambda:.0f}'
-        if breakdown is not None:
+        full_name += f'_Lambda-{Lambda:.0f}_ratio-{self.ratio_str}'
+
+        if isinstance(breakdown, tuple):
+            full_name += f'_breakdown-{breakdown[0]:.0f}-{breakdown[1]:.0f}-{breakdown[2]:.0f}'
+        elif breakdown is not None:
             full_name += f'_breakdown-{breakdown:.0f}'
         else:
             full_name += f'_breakdown-None'
+
+        if isinstance(ls, tuple):
+            full_name += f'_ls-{ls[0]:.0f}-{ls[1]:.0f}-{ls[2]:.0f}'
+        elif ls is not None:
+            full_name += f'_ls-{ls:.0f}'
+        else:
+            full_name += f'_ls-None'
         full_name += f'_ref-{ref:.0f}'
+
+        center = self.kwargs.get('center', 0)
+        disp = self.kwargs.get('disp', 1)
+        df = self.kwargs.get('df', 1)
+        scale = self.kwargs.get('scale', 1)
+        full_name += f'_hyp-{center}-{disp}-{df}-scale-{scale}'
+
         full_name = join(self.fig_path, full_name)
         return full_name
 
@@ -536,7 +623,19 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
         ax.legend()
 
-        if self.savefig:
+        if self.savefigs:
             fig = plt.gcf()
             fig.savefig(self.figure_name('coeffs', breakdown=breakdown))
         return ax
+
+    def plot_joint_breakdown_ls(self, max_idx):
+        system_str = fr'${self.system_math_string}$'
+        order_str = fr'N$^{max_idx}$LO'
+        fig = joint2dplot(self.df_ls, self.df_breakdown, self.df_joint, system=system_str,
+                          order=order_str, data_str=self.system_math_string)
+
+        breakdown = (self.breakdown_min, self.breakdown_max, self.breakdown_num)
+        ls = (self.ls_min, self.ls_max, self.ls_num)
+        if self.savefigs:
+            fig.savefig(self.figure_name('joint_ls_breakdown', breakdown=breakdown, ls=ls))
+        return fig
