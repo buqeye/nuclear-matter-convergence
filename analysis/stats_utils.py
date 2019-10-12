@@ -382,7 +382,7 @@ class ConvergenceAnalysis:
         self.kwargs = kwargs
 
     def compute_coefficients(self, **kwargs):
-        ratio = self.ratio(**kwargs)
+        ratio = self.ratio(self.X, **kwargs)
         c = gm.coefficients(self.y, ratio, self.ref, self.orders)[:, self.excluded_mask]
         return c
 
@@ -426,6 +426,9 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         kf=ratio_kf
     )
 
+    MD_label = r'\mathrm{D}_{\mathrm{MD}}^2'
+    PC_label = r'\mathrm{D}_{\mathrm{PC}}'
+
     def __init__(self, X, y, orders, train, valid, ref, ratio, density, *, system='neutron',
                  fit_n2lo=None, fit_n3lo=None, Lambda=None, body=None, savefigs=False, **kwargs):
 
@@ -448,6 +451,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         self.breakdown = None
         self.breakdown_min, self.breakdown_max, self.breakdown_num = None, None, None
         self.ls_min, self.ls_max, self.ls_num = None, None, None
+        self._breakdown_map = None
+        self._ls_map = None
         self.ls = None
         self.max_idx = None
         self.logprior = None
@@ -500,6 +505,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         self.ls_min, self.ls_max, self.ls_num = ls_min, ls_max, ls_num
         breakdown = np.linspace(breakdown_min, breakdown_max, breakdown_num)
         ls = np.linspace(ls_min, ls_max, ls_num)
+        breakdown_maps = []
+        ls_maps = []
         for idx in np.atleast_1d(max_idx):
             joint_pdf, breakdown_pdf, ls_pdf = self.compute_breakdown_ls_posterior(
                 breakdown, ls, max_idx=idx, logprior=logprior)
@@ -521,6 +528,11 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             df_joint['Order'] = fr'N$^{idx}$LO'
             df_joint['system'] = fr'${self.system_math_string}$'
             dfs_joint.append(df_joint)
+
+            map_idx = np.argmax(joint_pdf)
+            map_idx = np.unravel_index(map_idx, shape=joint_pdf.shape)
+            breakdown_maps.append(breakdown[map_idx[1]])
+            ls_maps.append(ls[map_idx[0]])
         df_breakdown = pd.concat(dfs_breakdown, ignore_index=True)
         df_ls = None
         if ls is not None:
@@ -533,11 +545,22 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         self.df_joint = df_joint
         self.df_breakdown = df_breakdown
         self.df_ls = df_ls
+        self._breakdown_map = breakdown_maps
+        self._ls_map = ls_maps
         return df_joint, df_breakdown, df_ls
 
-    def compute_underlying_graphical_diagnostic(self):
-        coeffs = self.compute_coefficients()
+    @property
+    def breakdown_map(self):
+        return self._breakdown_map
+
+    @property
+    def ls_map(self):
+        return self._ls_map
+
+    def compute_underlying_graphical_diagnostic(self, breakdown):
+        coeffs = self.compute_coefficients(breakdown=breakdown)
         process = gm.ConjugateGaussianProcess(**self.kwargs)
+        process.fit(self.X_train, coeffs[self.train])
         mean = process.mean(self.X_valid)
         cov = process.cov(self.X_valid)
         graph = gm.GraphicalDiagnostic(coeffs[self.valid], mean, cov, colors=self.colors, gray=gray, black=softblack)
@@ -593,7 +616,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         return full_name
 
     def plot_coefficients(self, breakdown, ax=None):
-        coeffs = self.compute_coefficients(momentum=self.X, breakdown=breakdown)
+        coeffs = self.compute_coefficients(breakdown=breakdown)
         if ax is None:
             fig, ax = plt.subplots(figsize=(3.4, 3.4))
         kf = self.X.ravel()
@@ -621,6 +644,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         y_label += fr'${self.system_math_strings[self.system]}$'
         ax.set_ylabel(y_label)
         ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
+        ax.set_xticks(self.X_valid.ravel(), minor=True)
         ax.legend()
 
         if self.savefigs:
@@ -639,3 +663,38 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         if self.savefigs:
             fig.savefig(self.figure_name('joint_ls_breakdown', breakdown=breakdown, ls=ls))
         return fig
+
+    def plot_md_squared(self, breakdown=None, ls=None, ax=None):
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(1, 3.2))
+        if breakdown is None:
+            breakdown = self.breakdown_map[-1]
+        print('Using breakdown =', breakdown, 'MeV')
+        graph = self.compute_underlying_graphical_diagnostic(breakdown=breakdown)
+        obs = self.system_math_string
+        ax = graph.md_squared(type='box', trim=True, title=None, xlabel=rf'${self.MD_label}({obs})$', ax=ax)
+        if self.savefigs:
+            fig = plt.gcf()
+            fig.savefig(self.figure_name('md_under', breakdown=breakdown))
+        return ax
+
+    def plot_pchol(self, breakdown=None, ax=None):
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(3.2, 3.2))
+        if breakdown is None:
+            breakdown = self.breakdown_map[-1]
+        print('Using breakdown =', breakdown, 'MeV')
+        graph = self.compute_underlying_graphical_diagnostic(breakdown=breakdown)
+        obs = self.system_math_string
+        with plt.rc_context({"text.usetex": True, "text.latex.preview": True}):
+            ax = graph.pivoted_cholesky_errors(ax=ax, title=None)
+            ax.text(0.04, 0.967, rf'${self.PC_label}({obs})$', bbox=text_bbox, transform=ax.transAxes, va='top',
+                    ha='left')
+            fig = plt.gcf()
+            fig.tight_layout()
+            if self.savefigs:
+                fig.savefig(self.figure_name('pc_under', breakdown=breakdown))
+        return ax
+
+    def plot_diagnostics(self, breakdown=None):
+        pass
