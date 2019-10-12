@@ -1,6 +1,8 @@
+docrep
 gsum
 matplotlib
 numpy
 pandas
 scikit-learn
 scipy
+seaborn
