@@ -29,7 +29,7 @@ def fermi_momentum(density, degeneracy):
     return (6 * np.pi**2 * density / degeneracy)**(1./3)
 
 
-def ratio(momentum, breakdown=600):
+def ratio_kf(momentum, breakdown=600):
     return momentum.ravel() * hbar_c / breakdown
 
 
