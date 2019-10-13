@@ -145,9 +145,18 @@ def compute_2d_posterior(model, X, data, orders, max_idx, breakdown, ls=None, lo
         ls = np.exp(model.coeffs_process.kernel_.theta)
         print('Setting ls to', ls)
     ls = np.atleast_1d(ls)
-    log_like = np.array([
-        [model.log_marginal_likelihood(theta=[np.log(ls_), ], breakdown=lb) for lb in breakdown] for ls_ in ls
-    ])
+    # log_like = np.array([
+    #     [model.log_marginal_likelihood(theta=[np.log(ls_), ], breakdown=lb) for lb in breakdown] for ls_ in ls
+    # ])
+    from joblib import Parallel, delayed
+    import multiprocessing
+    num_cores = multiprocessing.cpu_count()
+    log_like = np.array(
+        Parallel(n_jobs=num_cores, prefer='processes')(
+            delayed(model.log_marginal_likelihood)(theta=[np.log(ls_), ], breakdown=lb)
+            for ls_ in ls for lb in breakdown
+        )
+    ).reshape(len(ls), len(breakdown))
     if logprior is not None:
         log_like += logprior
     joint_pdf = np.exp(log_like - np.max(log_like))
