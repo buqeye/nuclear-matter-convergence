@@ -4,6 +4,7 @@ from numpy import ndarray
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
+import matplotlib.gridspec as gs
 import docrep
 import seaborn as sns
 from seaborn import utils
@@ -338,6 +339,26 @@ def joint2dplot(ls_df, breakdown_df, joint_df, system, order, data_str=None):
     return fig
 
 
+def lighten_color(color, amount=0.5):
+    """
+    Lightens the given color by multiplying (1-luminosity) by the given amount.
+    Input can be matplotlib color string, hex string, or RGB tuple.
+
+    Examples:
+    >> lighten_color('g', 0.3)
+    >> lighten_color('#F034A3', 0.6)
+    >> lighten_color((.3,.55,.1), 0.5)
+    """
+    import matplotlib.colors as mc
+    import colorsys
+    try:
+        c = mc.cnames[color]
+    except:
+        c = color
+    c = colorsys.rgb_to_hls(*mc.to_rgb(c))
+    return colorsys.hls_to_rgb(c[0], 1 - amount * (1 - c[1]), c[2])
+
+
 @docstrings.get_sectionsf('ConvergenceAnalysis')
 @docstrings.dedent
 class ConvergenceAnalysis:
@@ -417,6 +438,11 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         symmetric='symmetric',
         difference='difference',
     )
+    system_strings_short = dict(
+        neutron='n',
+        symmetric='s',
+        difference='d',
+    )
     system_math_strings = dict(
         neutron='E/N',
         symmetric='E/A',
@@ -442,7 +468,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         self.Lambda = Lambda
         self.body = body
         self.savefigs = savefigs
-        self.fig_path = 'figures'
+        self.fig_path = 'new_figures'
         self.system_math_string = self.system_math_strings[system]
         self.density = density
         self.df_joint = None
@@ -576,63 +602,87 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         )
         return joint_pdf, Lb_pdf, ls_pdf
 
-    def figure_name(self, prefix, breakdown=None, ls=None):
+    def figure_name(self, prefix, breakdown=None, ls=None, max_idx=None, include_system=True):
         body = self.body
         fit_n2lo = self.fit_n2lo
         fit_n3lo = self.fit_n3lo
         Lambda = self.Lambda
         ref = self.ref
-        system = self.system_strings[self.system]
-
-        full_name = prefix + f'sys-{system}_body-{body}'
-        if body == 'NN+3N':
-            full_name += f'_fits-{fit_n2lo}-{fit_n3lo}'
+        if not include_system:
+            system = 'x'
         else:
-            full_name += f'_fits-0-0'
-        full_name += f'_Lambda-{Lambda:.0f}_ratio-{self.ratio_str}'
+            system = self.system_strings_short[self.system]
+
+        full_name = prefix + f'sys-{system}_{body}'
+        if body == 'NN+3N':
+            full_name += f'_fit-{fit_n2lo}-{fit_n3lo}'
+        else:
+            full_name += f'_fit-0-0'
+        full_name += f'_Lamb-{Lambda:.0f}_Q-{self.ratio_str}'
 
         if isinstance(breakdown, tuple):
-            full_name += f'_breakdown-{breakdown[0]:.0f}-{breakdown[1]:.0f}-{breakdown[2]:.0f}'
+            full_name += f'_Lb-{breakdown[0]:.0f}-{breakdown[1]:.0f}-{breakdown[2]:.0f}'
         elif breakdown is not None:
-            full_name += f'_breakdown-{breakdown:.0f}'
+            full_name += f'_Lb-{breakdown:.0f}'
         else:
-            full_name += f'_breakdown-None'
+            full_name += f'_Lb-x'
 
         if isinstance(ls, tuple):
             full_name += f'_ls-{ls[0]:.0f}-{ls[1]:.0f}-{ls[2]:.0f}'
         elif ls is not None:
             full_name += f'_ls-{ls:.0f}'
         else:
-            full_name += f'_ls-None'
+            full_name += f'_ls-x'
         full_name += f'_ref-{ref:.0f}'
+        if max_idx is not None:
+            full_name += f'_midx-{max_idx}'
+        else:
+            full_name += f'_midx-x'
 
         center = self.kwargs.get('center', 0)
         disp = self.kwargs.get('disp', 1)
         df = self.kwargs.get('df', 1)
         scale = self.kwargs.get('scale', 1)
-        full_name += f'_hyp-{center}-{disp}-{df}-scale-{scale}'
+        full_name += f'_hyp-{center}-{disp}-{df}-{scale}'
 
         full_name = join(self.fig_path, full_name)
         return full_name
 
-    def plot_coefficients(self, breakdown, ax=None):
+    def plot_coefficients(self, breakdown, ax=None, show_process=False, savefig=None):
         coeffs = self.compute_coefficients(breakdown=breakdown)
         if ax is None:
             fig, ax = plt.subplots(figsize=(3.4, 3.4))
         kf = self.X.ravel()
-        # d = self.compute_density(kf)
         d = self.density
         ax2 = ax.twiny()
         train = self.train
         colors = self.colors
+        light_colors = [lighten_color(c, 0.5) for c in colors]
+
+        if show_process:
+            model = gm.ConjugateGaussianProcess(**self.kwargs)
+            model.fit(self.X_train, coeffs[train])
+            pred, std = model.predict(self.X, return_std=True)
+            mu = model.center_
+            cbar = np.sqrt(model.cbar_sq_mean_)
+            ax.axhline(mu, 0, 1, c='k', zorder=0)
+            ax.axhline(cbar, 0, 1, c=gray, zorder=0)
+            ax.axhline(-cbar, 0, 1, c=gray, zorder=0)
+
         for i, n in enumerate(self.orders):
-            ax.plot(kf, coeffs[:, i], c=colors[i], label=fr'$c_{{{n}}}$')
-            ax.plot(kf[train], coeffs[train, i], marker='o', ls='', c=colors[i])
+            z = i
+            ax.plot(kf, coeffs[:, i], c=colors[i], label=fr'$c_{{{n}}}$', zorder=z)
+            ax.plot(kf[train], coeffs[train, i], marker='o', ls='', c=colors[i], zorder=z)
+            if show_process:
+                ax.plot(kf, pred[:, i], c=colors[i], zorder=z, ls='--')
+                ax.fill_between(
+                    kf, pred[:, i] + 2*std, pred[:, i] - 2*std, zorder=z,
+                    lw=0.5, alpha=1, facecolor=light_colors[i], edgecolor=colors[i]
+                )
 
         ax2.plot(d, np.zeros_like(d), ls='', c=gray, zorder=-1)  # Dummy data to set up ticks
         ax.axhline(0, 0, 1, ls='--', c=gray, zorder=-1)
         ax2.set_xlabel(r'Density $n$ (fm$^{-3}$)')
-        # ax.set_ylabel(r'Energy per Neutron $E/N$')
         if self.system == 'neutron':
             y_label = fr'Energy per Neutron '
         elif self.system == 'symmetric':
@@ -647,7 +697,10 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         ax.set_xticks(self.X_valid.ravel(), minor=True)
         ax.legend()
 
-        if self.savefigs:
+        if savefig is None:
+            savefig = self.savefigs
+
+        if savefig:
             fig = plt.gcf()
             fig.savefig(self.figure_name('coeffs', breakdown=breakdown))
         return ax
@@ -661,29 +714,32 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         breakdown = (self.breakdown_min, self.breakdown_max, self.breakdown_num)
         ls = (self.ls_min, self.ls_max, self.ls_num)
         if self.savefigs:
-            fig.savefig(self.figure_name('joint_ls_breakdown', breakdown=breakdown, ls=ls))
+            fig.savefig(self.figure_name('ls-Lb-2d', breakdown=breakdown, ls=ls, max_idx=max_idx))
         return fig
 
-    def plot_md_squared(self, breakdown=None, ls=None, ax=None):
+    def plot_md_squared(self, breakdown=None, ax=None, savefig=None):
         if ax is None:
             fig, ax = plt.subplots(figsize=(1, 3.2))
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
-        print('Using breakdown =', breakdown, 'MeV')
+            print('Using breakdown =', breakdown, 'MeV')
         graph = self.compute_underlying_graphical_diagnostic(breakdown=breakdown)
         obs = self.system_math_string
         ax = graph.md_squared(type='box', trim=True, title=None, xlabel=rf'${self.MD_label}({obs})$', ax=ax)
-        if self.savefigs:
+
+        if savefig is None:
+            savefig = self.savefigs
+        if savefig:
             fig = plt.gcf()
-            fig.savefig(self.figure_name('md_under', breakdown=breakdown))
+            fig.savefig(self.figure_name('md_under_', breakdown=breakdown))
         return ax
 
-    def plot_pchol(self, breakdown=None, ax=None):
+    def plot_pchol(self, breakdown=None, ax=None, savefig=None):
         if ax is None:
             fig, ax = plt.subplots(figsize=(3.2, 3.2))
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
-        print('Using breakdown =', breakdown, 'MeV')
+            print('Using breakdown =', breakdown, 'MeV')
         graph = self.compute_underlying_graphical_diagnostic(breakdown=breakdown)
         obs = self.system_math_string
         with plt.rc_context({"text.usetex": True, "text.latex.preview": True}):
@@ -691,10 +747,30 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             ax.text(0.04, 0.967, rf'${self.PC_label}({obs})$', bbox=text_bbox, transform=ax.transAxes, va='top',
                     ha='left')
             fig = plt.gcf()
-            fig.tight_layout()
-            if self.savefigs:
-                fig.savefig(self.figure_name('pc_under', breakdown=breakdown))
+
+            if savefig is None:
+                savefig = self.savefigs
+
+            if savefig:
+                fig.savefig(self.figure_name('pc_under_', breakdown=breakdown))
         return ax
 
-    def plot_diagnostics(self, breakdown=None):
-        pass
+    def plot_coeff_diagnostics(self, breakdown=None, fig=None, savefig=None):
+        if fig is None:
+            fig = plt.figure(figsize=(8, 3.2), constrained_layout=True)
+        if breakdown is None:
+            breakdown = self.breakdown_map[-1]
+            print('Using breakdown =', breakdown, 'MeV')
+        spec = fig.add_gridspec(nrows=1, ncols=7)
+        ax_cs = fig.add_subplot(spec[:, :3])
+        ax_md = fig.add_subplot(spec[:, 3])
+        ax_pc = fig.add_subplot(spec[:, 4:])
+        self.plot_coefficients(breakdown=breakdown, ax=ax_cs, show_process=True, savefig=False)
+        self.plot_md_squared(breakdown=breakdown, ax=ax_md, savefig=False)
+        self.plot_pchol(breakdown=breakdown, ax=ax_pc, savefig=False)
+
+        if savefig is None:
+            savefig = self.savefigs
+        if savefig:
+            fig.savefig(self.figure_name('cn_diags_', breakdown=breakdown))
+        return fig
