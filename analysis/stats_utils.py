@@ -516,8 +516,12 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         Parameters
         ----------
         max_idx
-        breakdown
-        ls
+        breakdown_min
+        breakdown_max
+        breakdown_num
+        ls_min
+        ls_max
+        ls_num
         logprior
 
         Returns
@@ -530,7 +534,10 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         self.breakdown_min, self.breakdown_max, self.breakdown_num = breakdown_min, breakdown_max, breakdown_num
         self.ls_min, self.ls_max, self.ls_num = ls_min, ls_max, ls_num
         breakdown = np.linspace(breakdown_min, breakdown_max, breakdown_num)
-        ls = np.linspace(ls_min, ls_max, ls_num)
+        if ls_min is None and ls_max is None and ls_num is None:
+            ls = None
+        else:
+            ls = np.linspace(ls_min, ls_max, ls_num)
         breakdown_maps = []
         ls_maps = []
         for idx in np.atleast_1d(max_idx):
@@ -558,7 +565,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             map_idx = np.argmax(joint_pdf)
             map_idx = np.unravel_index(map_idx, shape=joint_pdf.shape)
             breakdown_maps.append(breakdown[map_idx[1]])
-            ls_maps.append(ls[map_idx[0]])
+            if ls is not None:
+                ls_maps.append(ls[map_idx[0]])
         df_breakdown = pd.concat(dfs_breakdown, ignore_index=True)
         df_ls = None
         if ls is not None:
@@ -714,7 +722,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         breakdown = (self.breakdown_min, self.breakdown_max, self.breakdown_num)
         ls = (self.ls_min, self.ls_max, self.ls_num)
         if self.savefigs:
-            fig.savefig(self.figure_name('ls-Lb-2d', breakdown=breakdown, ls=ls, max_idx=max_idx))
+            fig.savefig(self.figure_name('ls-Lb-2d_', breakdown=breakdown, ls=ls, max_idx=max_idx))
         return fig
 
     def plot_md_squared(self, breakdown=None, ax=None, savefig=None):
