@@ -1,10 +1,8 @@
 import gsum as gm
 import numpy as np
 from numpy import ndarray
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-import matplotlib.gridspec as gs
 import docrep
 import seaborn as sns
 from seaborn import utils
@@ -12,8 +10,8 @@ import pandas as pd
 from matter import nuclear_density, fermi_momentum, ratio_kf
 from os.path import join
 
-
 docstrings = docrep.DocstringProcessor()
+docstrings.get_sections(str(gm.ConjugateGaussianProcess.__doc__), 'ConjugateGaussianProcess')
 
 black = 'k'
 softblack = 'k'
@@ -56,6 +54,22 @@ def compute_breakdown_posterior(model, X, data, orders, max_idx, logprior, break
 
 
 def compute_pdf_median_and_bounds(x, pdf, cred):
+    R"""Computes the median and credible intervals for a 1d pdf
+
+    Parameters
+    ----------
+    x : 1d array
+        The input variable
+    pdf : 1d array
+        The normalized pdf
+    cred : Iterable
+        The credible intervals in the range (0, 1)
+
+    Returns
+    -------
+    median : float
+    bounds : ndarray, shape = (len(cred), 2)
+    """
     bounds = np.zeros((len(cred), 2))
     for i, p in enumerate(cred):
         bounds[i] = gm.hpd_pdf(pdf=pdf, alpha=p, x=x)
@@ -69,7 +83,6 @@ def draw_summary_statistics(bounds68, bounds95, median, height=0., linewidth=1.,
     ax.plot(bounds68, [height, height], c=darkgray, lw=3*linewidth, solid_capstyle='round')
     ax.plot(bounds95, [height, height], c=darkgray, lw=linewidth, solid_capstyle='round')
     ax.plot([median], [height], c='white', marker='o', zorder=10, markersize=1.5*linewidth)
-    # ax.scatter([median], [height], zorder=10, color='white', edgecolor='white', s=(linewidth * 2)**2)
     return ax
 
 
@@ -247,7 +260,7 @@ def pdfplot(
     saturation : float, optional
         The level of saturation for the color palette. Only works if the palette is a string recognized by
         sns.color_palette
-    ax : mpl.axes.Axis
+    ax : matplotlib.axes.Axes
         The axis on which to draw the plot
     margin : float, optional
         The vertical margin between each pdf.
@@ -371,20 +384,33 @@ def lighten_color(color, amount=0.5):
 @docstrings.get_sectionsf('ConvergenceAnalysis')
 @docstrings.dedent
 class ConvergenceAnalysis:
-    R"""
+    R"""A generic class for studying convergence of observables.
+
+    This is meant to provide the framework for particular analyses, which should subclass this class.
 
     Parameters
     ----------
-    X : ndarray
-    y : ndarray
-    orders : ndarray
-    train : ndarray
-    valid : ndarray
+    X : ndarray, shape = (N,p)
+        The feature matrix
+    y : ndarray, shape = (N, n_curves)
+        The response curves
+    orders : ndarray, shape = (n_orders,)
+    train : ndarray, shape = (N,)
+        A boolean array that is `True` if that point is to be used to train the convergence model.
+    valid : ndarray, shape = (N,)
+        A boolean array that is `True` if that point is to be used to validate the convergence model.
     ref : float or callable
+        The reference scale
     ratio : float or callable
-    ignore_orders : ndarray, optional
+        The ratio Q
+    excluded : ndarray, optional
+        The orders for which the coefficients should not be used in training the convergence model.
     colors : ndarray, optional
-    kwargs : dict
+        Colors for plotting orders and their diagnostics.
+
+    Other Parameters
+    ----------------
+    %(ConjugateGaussianProcess.parameters)s
     """
 
     def __init__(self, X, y, orders, train, valid, ref, ratio, *, excluded=None, colors=None, **kwargs):
@@ -435,11 +461,22 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
     %(ConvergenceAnalysis.parameters)s
     density : ndarray
     system : str
+        The physical system to consider. Can be 'neutron', 'symmetric', or 'difference'. Affects how to convert
+        between kf and density, and also the way that files are named.
     fit_n2lo : str
+        The fit number for the NN+3N N2LO potential. Used for naming files.
     fit_n3lo : str
+        The fit number for the NN+3N N3LO potential. Used for naming files.
     Lambda : int
+        The Lambda regulator for the potential. Used for naming files.
     body : str
-    savefigs : bool
+        Either 'NN-only' or 'NN+3N'
+    savefigs : bool, optional
+        Whether to save figures when plot_* is called. Defaults to `False`
+
+    Other Parameters
+    ----------------
+    %(ConvergenceAnalysis.other_parameters)s
     """
 
     system_strings = dict(
@@ -520,19 +557,41 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
     def setup_posteriors(self, max_idx, breakdown_min, breakdown_max, breakdown_num, ls_min, ls_max, ls_num,
                          logprior=None):
-        R"""
+        R"""Computes and stores the values for the breakdown and length scale posteriors.
+
+        This must be run before running functions that depend on these posteriors.
 
         Parameters
         ----------
-        max_idx
-        breakdown_min
-        breakdown_max
-        breakdown_num
-        ls_min
-        ls_max
-        ls_num
-        logprior
-
+        max_idx : List[int], int
+            All orders up to self.orders[:max_idx+1] are kept and used to compute posteriors. If a list is provided,
+            then the posterior is computed for each of the max_indices in the list.
+        breakdown_min : float
+            The minimum value for the breakdown scale. Will be used to compute
+            `np.linspace(breakdown_min, breakdown_max, breakdown_num)`.
+        breakdown_max : float
+            The maximum value for the breakdown scale. Will be used to compute
+            `np.linspace(breakdown_min, breakdown_max, breakdown_num)`.
+        breakdown_num : int
+            The number of breakdown scale values to use in the posterior. Will be used to compute
+            `np.linspace(breakdown_min, breakdown_max, breakdown_num)`.
+        ls_min : float
+            The minimum value for the length scale. Will be used to compute
+            `np.linspace(ls_min, ls_max, ls_num)`. if `ls_min`, `ls_max`, and `ls_num` are all `None`, then
+            the MAP value of the length scale will be used for the breakdown posterior. No length scale posterior
+            will be computed in this case.
+        ls_max : float
+            The maximum value for the length scale. Will be used to compute
+            `np.linspace(ls_min, ls_max, ls_num)`. if `ls_min`, `ls_max`, and `ls_num` are all `None`, then
+            the MAP value of the length scale will be used for the breakdown posterior. No length scale posterior
+            will be computed in this case.
+        ls_num : int
+            The number of length scales to use in the posterior. Will be used to compute
+            `np.linspace(ls_min, ls_max, ls_num)`. if `ls_min`, `ls_max`, and `ls_num` are all `None`, then
+            the MAP value of the length scale will be used for the breakdown posterior. No length scale posterior
+            will be computed in this case.
+        logprior : ndarray, optional, shape = (ls_num, breakdown_num)
+            The prior pr(breakdown, ls). If `None`, then a flat prior is used.
         Returns
         -------
 
@@ -735,6 +794,22 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         return fig
 
     def plot_md_squared(self, breakdown=None, ax=None, savefig=None):
+        R"""Plots the squared Mahalanobis distance.
+
+        Parameters
+        ----------
+        breakdown : float, optional
+            The value for the breakdown scale to use in the diagnostics. If `None`, then its MAP value is used.
+        ax : matplotlib.axes.Axes, optional
+            The axis on which to draw the coefficient plots and diagnostics
+        savefig : bool, optional
+            Whether to save the figure. If `None`, this is taken from `self.savefigs`.
+
+        Returns
+        -------
+        ax : matplotlib.axes.Axes
+            The axis object
+        """
         if ax is None:
             fig, ax = plt.subplots(figsize=(1, 3.2))
         if breakdown is None:
@@ -752,6 +827,22 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         return ax
 
     def plot_pchol(self, breakdown=None, ax=None, savefig=None):
+        R"""Plots the pivoted Cholesky diagnostic.
+
+        Parameters
+        ----------
+        breakdown : float, optional
+            The value for the breakdown scale to use in the diagnostic. If `None`, then its MAP value is used.
+        ax : matplotlib.axes.Axes, optional
+            The axis on which to draw the coefficient plots and diagnostics
+        savefig : bool, optional
+            Whether to save the figure. If `None`, this is taken from `self.savefigs`.
+
+        Returns
+        -------
+        ax : matplotlib.axes.Axes
+            The axis object
+        """
         if ax is None:
             fig, ax = plt.subplots(figsize=(3.2, 3.2))
         if breakdown is None:
@@ -773,6 +864,22 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         return ax
 
     def plot_coeff_diagnostics(self, breakdown=None, fig=None, savefig=None):
+        R"""Plots coefficients, the squared Mahalanobis distance, and the pivoted Cholesky diagnostic.
+
+        Parameters
+        ----------
+        breakdown : float, optional
+            The value for the breakdown scale to use in the diagnostics. If `None`, then its MAP value is used.
+        fig : matplotlib.figure.Figure, optional
+            The Figure on which to draw the coefficient plots and diagnostics
+        savefig : bool, optional
+            Whether to save the figure. If `None`, this is taken from `self.savefigs`.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure object
+        """
         if fig is None:
             fig = plt.figure(figsize=(8, 3.2), constrained_layout=True)
         if breakdown is None:
