@@ -9,6 +9,7 @@ from seaborn import utils
 import pandas as pd
 from matter import nuclear_density, fermi_momentum, ratio_kf
 from os.path import join
+from scipy import stats
 
 docstrings = docrep.DocstringProcessor()
 docstrings.get_sections(str(gm.ConjugateGaussianProcess.__doc__), 'ConjugateGaussianProcess')
@@ -361,6 +362,78 @@ def joint2dplot(ls_df, breakdown_df, joint_df, system, order, data_str=None):
     return fig
 
 
+def minimum_samples(mean, cov, n=5000, x=None):
+    gp = stats.multivariate_normal(mean=mean, cov=cov)
+    samples = gp.rvs(n)
+    min_idxs = np.argmin(samples, axis=1)
+    min_y = np.min(samples, axis=1)
+    if x is not None:
+        min_x = x[min_idxs]
+        return min_x, min_y
+    return min_idxs, min_y
+
+
+def confidence_ellipse(x, y, ax, n_std=3.0, facecolor='none', **kwargs):
+    """
+    Create a plot of the covariance confidence ellipse of *x* and *y*.
+
+    Parameters
+    ----------
+    x, y : array-like, shape (n, )
+        Input data.
+    ax : matplotlib.axes.Axes
+        The axes object to draw the ellipse into.
+    n_std : float
+        The number of standard deviations to determine the ellipse's radii.
+    facecolor : str
+        The color of the ellipse
+
+    Returns
+    -------
+    matplotlib.patches.Ellipse
+
+    Other parameters
+    ----------------
+    kwargs : `~matplotlib.patches.Patch` properties
+    """
+    from matplotlib.patches import Ellipse
+    import matplotlib.transforms as transforms
+    if x.size != y.size:
+        raise ValueError("x and y must be the same size")
+
+    cov = np.cov(x, y)
+    pearson = cov[0, 1]/np.sqrt(cov[0, 0] * cov[1, 1])
+    # Using a special case to obtain the eigenvalues of this
+    # two-dimensional dataset.
+    ell_radius_x = np.sqrt(1 + pearson)
+    ell_radius_y = np.sqrt(1 - pearson)
+    ellipse = Ellipse(
+        (0, 0),
+        width=ell_radius_x * 2,
+        height=ell_radius_y * 2,
+        facecolor=facecolor,
+        **kwargs
+    )
+
+    # Calculating the standard deviation of x from
+    # the square root of the variance and multiplying
+    # with the given number of standard deviations.
+    scale_x = np.sqrt(cov[0, 0]) * n_std
+    mean_x = np.mean(x)
+
+    # calculating the standard deviation of y ...
+    scale_y = np.sqrt(cov[1, 1]) * n_std
+    mean_y = np.mean(y)
+
+    trans = transforms.Affine2D() \
+        .rotate_deg(45) \
+        .scale(scale_x, scale_y) \
+        .translate(mean_x, mean_y)
+
+    ellipse.set_transform(trans + ax.transData)
+    return ax.add_patch(ellipse)
+
+
 def lighten_color(color, amount=0.5):
     """
     Lightens the given color by multiplying (1-luminosity) by the given amount.
@@ -678,6 +751,33 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         )
         return joint_pdf, Lb_pdf, ls_pdf
 
+    def order_index(self, order):
+        return np.squeeze(np.argwhere(self.orders == order))
+
+    def compute_minimum(self, order, n_samples, breakdown=None, X=None, nugget=0):
+        if X is None:
+            X = self.X
+        if breakdown is None:
+            breakdown = self.breakdown_map[-1]
+        x = X.ravel()
+        # ord = self.orders == order
+        ord = np.squeeze(np.argwhere(self.orders == order))
+
+        model = gm.TruncationGP(
+            ratio=self.ratio, ref=self.ref, excluded=self.excluded,
+            ratio_kws=dict(breakdown=breakdown), **self.kwargs
+        )
+        model.fit(self.X_train, y=self.y_train, orders=self.orders)
+        pred, cov = model.predict(X, order=order, return_cov=True, kind='trunc')
+        pred += self.y[:, ord]
+        cov += np.diag(cov) * nugget * np.eye(cov.shape[0])
+        x_min, y_min = minimum_samples(pred, cov, n=n_samples, x=x)
+
+        # Don't interpolate
+        min_idx = np.argmin(self.y[:, ord])
+        x_min_no_trunc, y_min_no_trunc = self.X.ravel()[min_idx], self.y[min_idx][ord]
+        return x_min_no_trunc, y_min_no_trunc, x_min, y_min
+
     def figure_name(self, prefix, breakdown=None, ls=None, max_idx=None, include_system=True):
         body = self.body
         fit_n2lo = self.fit_n2lo
@@ -779,6 +879,80 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         if savefig:
             fig = plt.gcf()
             fig.savefig(self.figure_name('coeffs', breakdown=breakdown))
+        return ax
+
+    def plot_observables(self, breakdown=None, ax=None, show_process=False, savefig=None):
+        if breakdown is None:
+            breakdown = self.breakdown_map[-1]
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(3.4, 3.4))
+        ax.margins(x=0.)
+        kf = self.X.ravel()
+        # d = self.density
+        # ax2 = ax.twiny()
+        # train = self.train
+        colors = self.colors
+        light_colors = [lighten_color(c, 0.5) for c in colors]
+
+        if show_process:
+            model = gm.TruncationGP(
+                ratio=self.ratio, ref=self.ref, excluded=self.excluded,
+                ratio_kws=dict(breakdown=breakdown), **self.kwargs
+            )
+            model.fit(self.X_train, y=self.y_train, orders=self.orders)
+
+        for i, n in enumerate(self.orders):
+            z = i
+            ax.plot(kf, self.y[:, i], c=colors[i], label=fr'N$^{n}$LO', zorder=z)
+            # ax.plot(kf[train], self.y[train, i], marker='o', ls='', c=colors[i], zorder=z)
+            if show_process:
+                _, std = model.predict(self.X, order=n, return_std=True, kind='trunc')
+                ax.plot(kf, self.y[:, i], c=colors[i], zorder=z, ls='--')
+                ax.fill_between(
+                    kf, self.y[:, i] + 2*std, self.y[:, i] - 2*std, zorder=z,
+                    lw=0.5, alpha=1, facecolor=light_colors[i], edgecolor=colors[i]
+                )
+
+        # ax2.plot(d, self.y[:, 0], ls='', c=gray, zorder=-1)  # Dummy data to set up ticks
+        # ax.axhline(0, 0, 1, ls='--', c=gray, zorder=-1)
+
+        if self.system == 'neutron':
+            y_label = fr'Energy per Neutron '
+        elif self.system == 'symmetric':
+            y_label = 'Energy per Particle '
+        elif self.system == 'difference':
+            y_label = 'Symmetry Energy '
+        else:
+            raise ValueError('system has wrong value')
+
+        y_label += fr'${self.system_math_strings[self.system]}$'
+        ax.set_ylabel(y_label)
+        ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
+        ax.set_xticks(self.X_valid.ravel(), minor=True)
+        ax.legend()
+
+        ax.margins(x=0.)
+        kf_ticks = np.array([1., 1.2, 1.4])
+        ax.set_xticks(kf_ticks)
+        ax2 = ax.twiny()
+        ax2.margins(x=0.)
+        ax.set_xlim(kf[0], kf[-1])
+        ax2.set_xlim(kf[0], kf[-1])
+        # ax2.set_xlim(ax.get_xlim())
+        d_ticks = self.compute_density(kf_ticks)
+        ax2.set_xticks(kf_ticks)
+        ax2.set_xticks([self.compute_momentum(0.164)], minor=True)
+        ax2.set_xticklabels([f'{dd:0.3}' for dd in d_ticks])
+        ax2.set_xlabel(r'Density $n$ (fm$^{-3}$)')
+        if self.system == 'symmetric':
+            self.plot_empirical_saturation(ax, kf_scale=True)
+
+        if savefig is None:
+            savefig = self.savefigs
+
+        if savefig:
+            fig = plt.gcf()
+            fig.savefig(self.figure_name('obs_', breakdown=breakdown))
         return ax
 
     def plot_joint_breakdown_ls(self, max_idx):
@@ -896,5 +1070,52 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         if savefig is None:
             savefig = self.savefigs
         if savefig:
-            fig.savefig(self.figure_name('cn_diags_', breakdown=breakdown))
+            fig.savefig(self.figure_name('cn_diags_', breakdown=breakdown), metadata={'hi': [1, 2, 3], 'wtf': 7})
         return fig
+
+    def plot_empirical_saturation(self, ax=None, kf_scale=True):
+        from matplotlib.patches import Rectangle
+        # From Drischler 2018 arXiv:1710.08220
+        n0 = 0.164
+        n0_std = 0.007
+        y0 = -15.86
+        y0_std = np.sqrt(0.37 ** 2 + 0.2 ** 2)
+        left = n0 - n0_std
+        right = n0 + n0_std
+        if kf_scale:
+            left = self.compute_momentum(left)
+            right = self.compute_momentum(right)
+        rect = Rectangle(
+            (left, y0 - y0_std), width=right - left, height=2 * y0_std,
+            facecolor='lightgray', edgecolor='gray', alpha=0.4, zorder=100,
+        )
+        ax.add_patch(rect)
+        return ax
+
+    def plot_saturation(self, breakdown=None, order=4, ax=None, savefig=None, color=None, nugget=0, **kwargs):
+        if breakdown is None:
+            breakdown = self.breakdown_map[-1]
+            print('Using breakdown =', breakdown, 'MeV')
+        if ax is None:
+            ax = plt.gca()
+        x_min_no_trunc, y_min_no_trunc, x_min, y_min = self.compute_minimum(
+            order=order, n_samples=1000, breakdown=breakdown, X=self.X, nugget=nugget
+        )
+        if color is None:
+            color = self.colors[self.order_index(order)]
+        light_color = lighten_color(color)
+        confidence_ellipse(x_min, y_min, ax=ax, n_std=2, facecolor=light_color, zorder=0, **kwargs)
+        ax.plot(x_min_no_trunc, y_min_no_trunc, marker='x', ls='', c=color, label='True', zorder=1)
+        ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
+        # kf_ticks = ax.get_xticks()
+        # d_ticks = self.compute_momentum(kf_ticks)
+
+        # k_min, k_max = ax.get_xlim()
+        # d = self.compute_density(np.array([k_min, k_max]))
+        # ax2 = ax.twiny()
+        # ax2.plot(d_ticks, np.average(y_min) * np.ones_like(d_ticks), ls='')
+        # ax2.set_xticks(d_ticks)
+        self.plot_empirical_saturation(ax=ax, kf_scale=True)
+        if savefig:
+            pass
+        return ax
