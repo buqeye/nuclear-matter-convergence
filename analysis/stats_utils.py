@@ -10,6 +10,7 @@ import pandas as pd
 from matter import nuclear_density, fermi_momentum, ratio_kf
 from os.path import join
 from scipy import stats
+from copy import deepcopy
 
 docstrings = docrep.DocstringProcessor()
 docstrings.get_sections(str(gm.ConjugateGaussianProcess.__doc__), 'ConjugateGaussianProcess')
@@ -768,8 +769,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             ratio_kws=dict(breakdown=breakdown), **self.kwargs
         )
         model.fit(self.X_train, y=self.y_train, orders=self.orders)
-        pred, cov = model.predict(X, order=order, return_cov=True, kind='trunc')
-        pred += self.y[:, ord]
+        pred, cov = model.predict(X, order=order, return_cov=True, kind='both')
+        # pred += self.y[:, ord]
         cov += np.diag(cov) * nugget * np.eye(cov.shape[0])
         x_min, y_min = minimum_samples(pred, cov, n=n_samples, x=x)
 
@@ -824,7 +825,10 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         full_name = join(self.fig_path, full_name)
         return full_name
 
-    def plot_coefficients(self, breakdown, ax=None, show_process=False, savefig=None):
+    def plot_coefficients(self, breakdown=None, ax=None, show_process=False, savefig=None):
+        if breakdown is None:
+            breakdown = self.breakdown_map[-1]
+            print('Using breakdown =', breakdown, 'MeV')
         coeffs = self.compute_coefficients(breakdown=breakdown)
         if ax is None:
             fig, ax = plt.subplots(figsize=(3.4, 3.4))
@@ -836,11 +840,14 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         light_colors = [lighten_color(c, 0.5) for c in colors]
 
         if show_process:
+            print(self.kwargs)
             model = gm.ConjugateGaussianProcess(**self.kwargs)
             model.fit(self.X_train, coeffs[train])
+            print(model.kernel_)
             pred, std = model.predict(self.X, return_std=True)
             mu = model.center_
             cbar = np.sqrt(model.cbar_sq_mean_)
+            print(cbar)
             ax.axhline(mu, 0, 1, c='k', zorder=0)
             ax.axhline(cbar, 0, 1, c=gray, zorder=0)
             ax.axhline(-cbar, 0, 1, c=gray, zorder=0)
@@ -903,7 +910,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
         for i, n in enumerate(self.orders):
             z = i
-            ax.plot(kf, self.y[:, i], c=colors[i], label=fr'N$^{n}$LO', zorder=z)
+            ax.plot(kf, self.y[:, i], c=colors[i], label=fr'N$^{i}$LO', zorder=z)
             # ax.plot(kf[train], self.y[train, i], marker='o', ls='', c=colors[i], zorder=z)
             if show_process:
                 _, std = model.predict(self.X, order=n, return_std=True, kind='trunc')
@@ -1092,14 +1099,16 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         ax.add_patch(rect)
         return ax
 
-    def plot_saturation(self, breakdown=None, order=4, ax=None, savefig=None, color=None, nugget=0, **kwargs):
+    def plot_saturation(self, breakdown=None, order=4, ax=None, savefig=None, color=None, nugget=0, X=None, **kwargs):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
         if ax is None:
             ax = plt.gca()
+        if X is None:
+            X = self.X
         x_min_no_trunc, y_min_no_trunc, x_min, y_min = self.compute_minimum(
-            order=order, n_samples=1000, breakdown=breakdown, X=self.X, nugget=nugget
+            order=order, n_samples=1000, breakdown=breakdown, X=X, nugget=nugget
         )
         if color is None:
             color = self.colors[self.order_index(order)]
