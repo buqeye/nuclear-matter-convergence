@@ -840,14 +840,11 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         light_colors = [lighten_color(c, 0.5) for c in colors]
 
         if show_process:
-            print(self.kwargs)
             model = gm.ConjugateGaussianProcess(**self.kwargs)
             model.fit(self.X_train, coeffs[train])
-            print(model.kernel_)
             pred, std = model.predict(self.X, return_std=True)
             mu = model.center_
             cbar = np.sqrt(model.cbar_sq_mean_)
-            print(cbar)
             ax.axhline(mu, 0, 1, c='k', zorder=0)
             ax.axhline(cbar, 0, 1, c=gray, zorder=0)
             ax.axhline(-cbar, 0, 1, c=gray, zorder=0)
