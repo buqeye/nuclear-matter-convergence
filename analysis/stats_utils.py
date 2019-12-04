@@ -705,7 +705,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             dfs_joint.append(df_joint)
 
             map_idx = np.argmax(joint_pdf)
-            map_idx = np.unravel_index(map_idx, shape=joint_pdf.shape)
+            map_idx = np.unravel_index(map_idx, joint_pdf.shape)
             breakdown_maps.append(breakdown[map_idx[1]])
             if ls is not None:
                 ls_maps.append(ls[map_idx[0]])
