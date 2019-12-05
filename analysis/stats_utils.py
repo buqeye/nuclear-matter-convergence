@@ -11,6 +11,7 @@ from matter import nuclear_density, fermi_momentum, ratio_kf
 from os.path import join
 from scipy import stats
 from copy import deepcopy
+from os import path
 
 docstrings = docrep.DocstringProcessor()
 docstrings.get_sections(str(gm.ConjugateGaussianProcess.__doc__), 'ConjugateGaussianProcess')
@@ -576,7 +577,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
     PC_label = r'\mathrm{D}_{\mathrm{PC}}'
 
     def __init__(self, X, y, orders, train, valid, ref, ratio, density, *, system='neutron',
-                 fit_n2lo=None, fit_n3lo=None, Lambda=None, body=None, savefigs=False, **kwargs):
+                 fit_n2lo=None, fit_n3lo=None, Lambda=None, body=None, savefigs=False,
+                 fig_path='new_figures', **kwargs):
 
         self.ratio_str = ratio
         ratio = self.ratio_map[ratio]
@@ -588,7 +590,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         self.Lambda = Lambda
         self.body = body
         self.savefigs = savefigs
-        self.fig_path = 'new_figures'
+        self.fig_path = fig_path
         self.system_math_string = self.system_math_strings[system]
         self.density = density
         self.df_joint = None
@@ -825,7 +827,30 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         full_name = join(self.fig_path, full_name)
         return full_name
 
-    def plot_coefficients(self, breakdown=None, ax=None, show_process=False, savefig=None):
+    def model_info(self, breakdown=None, ls=None, max_idx=None):
+        if breakdown is None:
+            breakdown = np.NaN
+        if ls is None:
+            ls = np.NaN
+        if max_idx is None:
+            max_idx = np.NaN
+        info = dict(
+            body=self.body,
+            fit_n2lo=self.fit_n2lo,
+            fit_n3lo=self.fit_n3lo,
+            Lambda=self.Lambda,
+            ref=self.ref,
+            center=self.kwargs.get('center', 0),
+            disp=self.kwargs.get('disp', 1),
+            df=self.kwargs.get('df', 1),
+            scale=self.kwargs.get('scale', 1),
+            breakdown=breakdown,
+            ls=ls,
+            max_idx=max_idx,
+        )
+        return info
+
+    def plot_coefficients(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
@@ -882,10 +907,18 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
         if savefig:
             fig = plt.gcf()
-            fig.savefig(self.figure_name('coeffs', breakdown=breakdown))
+            name = self.figure_name('coeffs', breakdown=breakdown)
+            fig.savefig(name)
+
+            if return_info:
+                info = self.model_info(breakdown=breakdown)
+                name = path.relpath(name, self.fig_path)
+                info['name'] = name
+                return ax, info
+
         return ax
 
-    def plot_observables(self, breakdown=None, ax=None, show_process=False, savefig=None):
+    def plot_observables(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
         if ax is None:
@@ -956,10 +989,16 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
         if savefig:
             fig = plt.gcf()
-            fig.savefig(self.figure_name('obs_', breakdown=breakdown))
+            name = self.figure_name('obs_', breakdown=breakdown)
+            fig.savefig(name)
+
+            if return_info:
+                info = self.model_info(breakdown=breakdown)
+                info['name'] = path.relpath(name, self.fig_path)
+                return ax, info
         return ax
 
-    def plot_joint_breakdown_ls(self, max_idx):
+    def plot_joint_breakdown_ls(self, max_idx, return_info=False):
         system_str = fr'${self.system_math_string}$'
         order_str = fr'N$^{max_idx}$LO'
         fig = joint2dplot(self.df_ls, self.df_breakdown, self.df_joint, system=system_str,
@@ -968,10 +1007,16 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         breakdown = (self.breakdown_min, self.breakdown_max, self.breakdown_num)
         ls = (self.ls_min, self.ls_max, self.ls_num)
         if self.savefigs:
-            fig.savefig(self.figure_name('ls-Lb-2d_', breakdown=breakdown, ls=ls, max_idx=max_idx))
+            name = self.figure_name('ls-Lb-2d_', breakdown=breakdown, ls=ls, max_idx=max_idx)
+            fig.savefig(name)
+
+            if return_info:
+                info = self.model_info(max_idx=max_idx)
+                info['name'] = path.relpath(name, self.fig_path)
+                return fig, info
         return fig
 
-    def plot_md_squared(self, breakdown=None, ax=None, savefig=None):
+    def plot_md_squared(self, breakdown=None, ax=None, savefig=None, return_info=False):
         R"""Plots the squared Mahalanobis distance.
 
         Parameters
@@ -1001,10 +1046,16 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             savefig = self.savefigs
         if savefig:
             fig = plt.gcf()
-            fig.savefig(self.figure_name('md_under_', breakdown=breakdown))
+            name = self.figure_name('md_under_', breakdown=breakdown)
+            fig.savefig(name)
+
+            if return_info:
+                info = self.model_info(breakdown=breakdown)
+                info['name'] = path.relpath(name, self.fig_path)
+                return ax, info
         return ax
 
-    def plot_pchol(self, breakdown=None, ax=None, savefig=None):
+    def plot_pchol(self, breakdown=None, ax=None, savefig=None, return_info=False):
         R"""Plots the pivoted Cholesky diagnostic.
 
         Parameters
@@ -1038,10 +1089,16 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
                 savefig = self.savefigs
 
             if savefig:
-                fig.savefig(self.figure_name('pc_under_', breakdown=breakdown))
+                name = self.figure_name('pc_under_', breakdown=breakdown)
+                fig.savefig(name)
+
+                if return_info:
+                    info = self.model_info(breakdown=breakdown)
+                    info['name'] = path.relpath(name, self.fig_path)
+                    return ax, info
         return ax
 
-    def plot_coeff_diagnostics(self, breakdown=None, fig=None, savefig=None):
+    def plot_coeff_diagnostics(self, breakdown=None, fig=None, savefig=None, return_info=False):
         R"""Plots coefficients, the squared Mahalanobis distance, and the pivoted Cholesky diagnostic.
 
         Parameters
@@ -1074,7 +1131,14 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         if savefig is None:
             savefig = self.savefigs
         if savefig:
-            fig.savefig(self.figure_name('cn_diags_', breakdown=breakdown), metadata={'hi': [1, 2, 3], 'wtf': 7})
+            name = self.figure_name('cn_diags_', breakdown=breakdown)
+            # fig.savefig(name, metadata={'hi': [1, 2, 3], 'wtf': 7})
+            fig.savefig(name)
+
+            if return_info:
+                info = self.model_info(breakdown=breakdown)
+                info['name'] = path.relpath(name, self.fig_path)
+                return fig, info
         return fig
 
     def plot_empirical_saturation(self, ax=None, kf_scale=True):
