@@ -971,7 +971,12 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         ax.legend()
 
         ax.margins(x=0.)
-        kf_ticks = np.array([1., 1.2, 1.4])
+        if self.system == 'neutron':
+            kf_ticks = np.array([1.2, 1.4, 1.6, 1.8])
+        elif self.system == 'symmetric':
+            kf_ticks = np.array([1., 1.2, 1.4])
+        else:
+            kf_ticks = np.array([1., 1.2, 1.4])
         ax.set_xticks(kf_ticks)
         ax2 = ax.twiny()
         ax2.margins(x=0.)
