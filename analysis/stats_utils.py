@@ -921,6 +921,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
     def plot_observables(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
+            print('Using breakdown =', breakdown, 'MeV')
+
         if ax is None:
             fig, ax = plt.subplots(figsize=(3.4, 3.4))
         ax.margins(x=0.)
