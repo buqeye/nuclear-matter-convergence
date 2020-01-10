@@ -1,10 +1,10 @@
 import numpy as np
 
-hbar_c = 197.32  # MeV.fm
+hbar_c = 197.327  # MeV-fm
 
 
 def nuclear_density(momentum, degeneracy):
-    R"""Computes the density of infinite matter in inverse fermi^3
+    R"""Computes the density of infinite matter in inverse fermi^3 given k_fermi
 
     Parameters
     ----------
@@ -30,18 +30,47 @@ def fermi_momentum(density, degeneracy):
 
 
 def ratio_kf(momentum, breakdown=600):
+    R"""
+    Dimensionless expansion ratio of k_fermi to breakdown scale.
+
+    Parameters
+    ----------
+    momentum : array
+        The fermi momentum in inverse fermi
+    breakdown: float, optional
+        Breakdown scale (Lambda_b) in MeV; defaults to 600 MeV
+    """
     return momentum.ravel() * hbar_c / breakdown
 
 
-def Lb_prior(Lb):
-    return np.where((Lb >= 300) & (Lb <= 1000), 1 / Lb, 0.)
+def Lb_prior(Lb, Lb_min=300, Lb_max=1000):
+    R"""
+    Uniform prior for the breakdown scale (Lambda_b aka Lb)
+    """
+    return np.where((Lb >= Lb_min) & (Lb <= Lb_max), 1 / Lb, 0.)
 
 
-def Lb_logprior(Lb):
+def Lb_logprior(Lb, Lb_min=300, Lb_max=1000):
+    R"""
+    Log uniform prior for the breakdown scale (Lambda_b aka Lb)
+    """
     return np.where((Lb >= 300) & (Lb <= 1000), np.log(1 / Lb), -np.inf)
 
 
 def figure_name(name, body, Lambda, fit_n2lo, fit_n3lo, breakdown, ref):
+    R"""
+    Generate filename for figures given specifications.
+
+    Parameters
+    ----------
+    name :
+    body :
+    Lambda :
+    fit_n2lo : index for fit at N2LO; only for NN+3N
+    fit_n3lo : index for fit at N3LO; only for NN+3N
+    breakdown :
+    ref :
+    """
     if body == 'NN+3N':
         full_name = name + f'_body-{body}_fits-{fit_n2lo}-{fit_n3lo}'
     else:
