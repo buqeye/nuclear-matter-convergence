@@ -582,6 +582,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
         self.ratio_str = ratio
         ratio = self.ratio_map[ratio]
+        # TODO: allow `excluded` to work properly in plots, etc.
         super().__init__(
             X, y, orders, train, valid, ref, ratio, **kwargs)
         self.system = system
