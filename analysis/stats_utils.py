@@ -1181,6 +1181,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         if color is None:
             color = self.colors[self.order_index(order)]
         light_color = lighten_color(color)
+        # TODO: Add scatter plots
+        # compute z-scores from all EDFs?
         confidence_ellipse(x_min, y_min, ax=ax, n_std=2, facecolor=light_color, zorder=0, **kwargs)
         ax.plot(x_min_no_trunc, y_min_no_trunc, marker='x', ls='', c=color, label='True', zorder=1)
         ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
