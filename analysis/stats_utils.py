@@ -3,6 +3,10 @@ import numpy as np
 from numpy import ndarray
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
+import matplotlib.patches as mpatches
+from matplotlib.patches import Ellipse
+from matplotlib.legend_handler import HandlerPatch
+from matplotlib.legend import Legend
 import docrep
 import seaborn as sns
 from seaborn import utils
@@ -21,6 +25,20 @@ softblack = 'k'
 gray = '0.75'
 darkgray = '0.5'
 text_bbox = dict(boxstyle='round', fc=(1, 1, 1, 0.6), ec=black, lw=0.8)
+
+
+class HandlerEllipse(HandlerPatch):
+    def create_artists(self, legend, orig_handle,
+                       xdescent, ydescent, width, height, fontsize, trans):
+        center = 0.5 * width - 0.5 * xdescent, 0.5 * height - 0.5 * ydescent
+        p = mpatches.Ellipse(xy=center, width=width + xdescent,
+                             height=height + ydescent)
+        self.update_prop(p, orig_handle, legend)
+        p.set_transform(trans)
+        return [p]
+
+
+Legend.update_default_handler_map({Ellipse: HandlerEllipse()})
 
 
 def compute_breakdown_posterior(model, X, data, orders, max_idx, logprior, breakdowns, lengths=None):
@@ -398,7 +416,6 @@ def confidence_ellipse(x, y, ax, n_std=3.0, facecolor='none', **kwargs):
     ----------------
     kwargs : `~matplotlib.patches.Patch` properties
     """
-    from matplotlib.patches import Ellipse
     import matplotlib.transforms as transforms
     if x.size != y.size:
         raise ValueError("x and y must be the same size")
@@ -433,7 +450,11 @@ def confidence_ellipse(x, y, ax, n_std=3.0, facecolor='none', **kwargs):
         .translate(mean_x, mean_y)
 
     ellipse.set_transform(trans + ax.transData)
-    return ax.add_patch(ellipse)
+    # sns.kdeplot(x, y, ax=ax)
+    scat_color = darken_color(facecolor, 0.5)
+    ax.plot(x, y, ls='', marker='.', markersize=0.6, color=scat_color)
+    ax.add_patch(ellipse)
+    return ellipse
 
 
 def lighten_color(color, amount=0.5):
@@ -454,6 +475,19 @@ def lighten_color(color, amount=0.5):
         c = color
     c = colorsys.rgb_to_hls(*mc.to_rgb(c))
     return colorsys.hls_to_rgb(c[0], 1 - amount * (1 - c[1]), c[2])
+
+
+def darken_color(color, amount=0.5):
+    """
+    Darken the given color by multiplying (1-luminosity) by the given amount.
+    Input can be matplotlib color string, hex string, or RGB tuple.
+
+    Examples:
+    >> darken_color('g', 0.3)
+    >> darken_color('#F034A3', 0.6)
+    >> darken_color((.3,.55,.1), 0.5)
+    """
+    return lighten_color(color, 1./amount)
 
 
 @docstrings.get_sectionsf('ConvergenceAnalysis')
@@ -508,13 +542,19 @@ class ConvergenceAnalysis:
         else:
             excluded_mask = ~np.isin(orders, excluded)
         self.excluded_mask = excluded_mask
+        self.orders_not_excluded = self.orders[excluded_mask]
+
+        colors = np.atleast_1d(colors)
+        self.colors_not_excluded = colors[excluded_mask]
 
         self.colors = colors
         self.kwargs = kwargs
 
-    def compute_coefficients(self, **kwargs):
+    def compute_coefficients(self, show_excluded=False, **kwargs):
         ratio = self.ratio(self.X, **kwargs)
-        c = gm.coefficients(self.y, ratio, self.ref, self.orders)[:, self.excluded_mask]
+        c = gm.coefficients(self.y, ratio, self.ref, self.orders)
+        if not show_excluded:
+            c = c[:, self.excluded_mask]
         return c
 
     def plot_coefficients(self, *args, **kwargs):
@@ -582,9 +622,13 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
         self.ratio_str = ratio
         ratio = self.ratio_map[ratio]
+
+        cmaps = [plt.get_cmap(name) for name in ['Oranges', 'Greens', 'Blues', 'Reds']]
+        colors = [cmap(0.55 - 0.1 * (i == 0)) for i, cmap in enumerate(cmaps)]
+
         # TODO: allow `excluded` to work properly in plots, etc.
         super().__init__(
-            X, y, orders, train, valid, ref, ratio, **kwargs)
+            X, y, orders, train, valid, ref, ratio, colors=colors, **kwargs)
         self.system = system
         self.fit_n2lo = fit_n2lo
         self.fit_n3lo = fit_n3lo
@@ -605,10 +649,6 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         self.ls = None
         self.max_idx = None
         self.logprior = None
-
-        cmaps = [plt.get_cmap(name) for name in ['Oranges', 'Greens', 'Blues', 'Reds']]
-        colors = [cmap(0.55 - 0.1 * (i == 0)) for i, cmap in enumerate(cmaps)]
-        self.colors = colors
 
     def compute_density(self, kf):
         degeneracy = None
@@ -736,13 +776,21 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
     def ls_map(self):
         return self._ls_map
 
-    def compute_underlying_graphical_diagnostic(self, breakdown):
-        coeffs = self.compute_coefficients(breakdown=breakdown)
+    def compute_underlying_graphical_diagnostic(self, breakdown, show_excluded=False):
+        coeffs = coeffs_not_excluded = self.compute_coefficients(
+            breakdown=breakdown, show_excluded=show_excluded
+        )
+        colors = self.colors
+        if not show_excluded:
+            colors = self.colors_not_excluded
+            coeffs_not_excluded = self.compute_coefficients(breakdown=breakdown, show_excluded=False)
+
         process = gm.ConjugateGaussianProcess(**self.kwargs)
-        process.fit(self.X_train, coeffs[self.train])
+        process.fit(self.X_train, coeffs_not_excluded[self.train])  # in either case, only fit to non-excluded coeffs
         mean = process.mean(self.X_valid)
         cov = process.cov(self.X_valid)
-        graph = gm.GraphicalDiagnostic(coeffs[self.valid], mean, cov, colors=self.colors, gray=gray, black=softblack)
+        # But it may be useful to visualize the diagnostics off all coefficients
+        graph = gm.GraphicalDiagnostic(coeffs[self.valid], mean, cov, colors=colors, gray=gray, black=softblack)
         return graph
 
     def compute_breakdown_ls_posterior(self, breakdown, ls, max_idx=None, logprior=None):
@@ -758,11 +806,13 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
     def order_index(self, order):
         return np.squeeze(np.argwhere(self.orders == order))
 
-    def compute_minimum(self, order, n_samples, breakdown=None, X=None, nugget=0):
+    def compute_minimum(self, order, n_samples, breakdown=None, X=None, nugget=0, cond=None):
         if X is None:
             X = self.X
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
+        if cond is None:
+            cond = self.train
         x = X.ravel()
         # ord = self.orders == order
         ord = np.squeeze(np.argwhere(self.orders == order))
@@ -771,16 +821,28 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             ratio=self.ratio, ref=self.ref, excluded=self.excluded,
             ratio_kws=dict(breakdown=breakdown), **self.kwargs
         )
+        # Only update hyperparameters based on train
         model.fit(self.X_train, y=self.y_train, orders=self.orders)
-        pred, cov = model.predict(X, order=order, return_cov=True, kind='both')
+        print(model.coeffs_process.kernel_)
+        # But then condition on `cond` X, y points to get a good interpolant
+        pred, cov = model.predict(X, order=order, return_cov=True, Xc=self.X[cond], y=self.y[cond, ord], kind='both')
+        # pred, cov = model.predict(X, order=order, return_cov=True, kind='both')
         # pred += self.y[:, ord]
-        cov += np.diag(cov) * nugget * np.eye(cov.shape[0])
-        x_min, y_min = minimum_samples(pred, cov, n=n_samples, x=x)
+        # cov += np.diag(cov) * nugget * np.eye(cov.shape[0])
+        x_min, y_min = minimum_samples(pred, (cov + nugget * np.eye(cov.shape[0])), n=n_samples, x=x)
+
+        is_endpoint = x_min == X[-1].ravel()
+        x_min = x_min[~is_endpoint]
+        y_min = y_min[~is_endpoint]
 
         # Don't interpolate
-        min_idx = np.argmin(self.y[:, ord])
-        x_min_no_trunc, y_min_no_trunc = self.X.ravel()[min_idx], self.y[min_idx][ord]
-        return x_min_no_trunc, y_min_no_trunc, x_min, y_min
+        # min_idx = np.argmin(self.y[:, ord])
+        # x_min_no_trunc, y_min_no_trunc = self.X.ravel()[min_idx], self.y[min_idx][ord]
+
+        # Do interpolate
+        min_idx = np.argmin(pred)
+        x_min_no_trunc, y_min_no_trunc = X.ravel()[min_idx], pred[min_idx]
+        return x_min_no_trunc, y_min_no_trunc, x_min, y_min, pred, cov
 
     def figure_name(self, prefix, breakdown=None, ls=None, max_idx=None, include_system=True):
         body = self.body
@@ -851,18 +913,25 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         )
         return info
 
-    def plot_coefficients(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False):
+    def plot_coefficients(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False,
+                          show_excluded=False):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
-        coeffs = self.compute_coefficients(breakdown=breakdown)
+        coeffs = self.compute_coefficients(breakdown=breakdown, show_excluded=show_excluded)
+        colors = self.colors
+        orders = self.orders
+        if not show_excluded:
+            colors = self.colors_not_excluded
+            orders = self.orders_not_excluded
+
         if ax is None:
             fig, ax = plt.subplots(figsize=(3.4, 3.4))
         kf = self.X.ravel()
         d = self.density
         ax2 = ax.twiny()
         train = self.train
-        colors = self.colors
+
         light_colors = [lighten_color(c, 0.5) for c in colors]
 
         if show_process:
@@ -875,7 +944,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             ax.axhline(cbar, 0, 1, c=gray, zorder=0)
             ax.axhline(-cbar, 0, 1, c=gray, zorder=0)
 
-        for i, n in enumerate(self.orders):
+        for i, n in enumerate(orders):
             z = i
             ax.plot(kf, coeffs[:, i], c=colors[i], label=fr'$c_{{{n}}}$', zorder=z)
             ax.plot(kf[train], coeffs[train, i], marker='o', ls='', c=colors[i], zorder=z)
@@ -919,7 +988,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
         return ax
 
-    def plot_observables(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False):
+    def plot_observables(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False,
+                         show_excluded=False):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
@@ -931,7 +1001,15 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         # d = self.density
         # ax2 = ax.twiny()
         # train = self.train
+
+        # coeffs = self.compute_coefficients(breakdown=breakdown)
         colors = self.colors
+        # orders = self.orders
+        # if not show_excluded:
+        #     coeffs = coeffs[:, self.excluded_mask]
+        #     colors = self.colors_not_excluded
+        #     orders = self.orders_not_excluded
+
         light_colors = [lighten_color(c, 0.5) for c in colors]
 
         if show_process:
@@ -943,6 +1021,9 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
         for i, n in enumerate(self.orders):
             z = i
+            if n not in self.orders_not_excluded and not show_excluded:
+                # Don't plot orders if we've excluded them
+                continue
             ax.plot(kf, self.y[:, i], c=colors[i], label=fr'N$^{i}$LO', zorder=z)
             # ax.plot(kf[train], self.y[train, i], marker='o', ls='', c=colors[i], zorder=z)
             if show_process:
@@ -1163,12 +1244,13 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             right = self.compute_momentum(right)
         rect = Rectangle(
             (left, y0 - y0_std), width=right - left, height=2 * y0_std,
-            facecolor='lightgray', edgecolor='gray', alpha=0.4, zorder=100,
+            facecolor='lightgray', edgecolor='gray', alpha=0.4, zorder=9,
         )
         ax.add_patch(rect)
         return ax
 
-    def plot_saturation(self, breakdown=None, order=4, ax=None, savefig=None, color=None, nugget=0, X=None, **kwargs):
+    def plot_saturation(self, breakdown=None, order=4, ax=None, savefig=None, color=None, nugget=0, X=None,
+                        cond=None, n_samples=1000, **kwargs):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
@@ -1176,17 +1258,36 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             ax = plt.gca()
         if X is None:
             X = self.X
-        x_min_no_trunc, y_min_no_trunc, x_min, y_min = self.compute_minimum(
-            order=order, n_samples=1000, breakdown=breakdown, X=X, nugget=nugget
+        x_min_no_trunc, y_min_no_trunc, x_min, y_min, pred, cov = self.compute_minimum(
+            order=order, n_samples=n_samples, breakdown=breakdown, X=X, nugget=nugget, cond=cond
         )
+        ord_idx = self.order_index(order)
+        approx_xlim = x_min.min() - 0.03, x_min.max() + 0.03
+        approx_xlim_mask = (self.X[cond].ravel() >= approx_xlim[0]) & (self.X[cond].ravel() <= approx_xlim[1])
+
         if color is None:
-            color = self.colors[self.order_index(order)]
+            color = self.colors[ord_idx]
         light_color = lighten_color(color)
         # TODO: Add scatter plots
         # compute z-scores from all EDFs?
-        confidence_ellipse(x_min, y_min, ax=ax, n_std=2, facecolor=light_color, zorder=0, **kwargs)
-        ax.plot(x_min_no_trunc, y_min_no_trunc, marker='x', ls='', c=color, label='True', zorder=1)
+        stdv = np.sqrt(np.diag(cov))
+        from matplotlib.collections import LineCollection
+        # ax.fill_between(X.ravel(), pred+stdv, pred-stdv, color=color, zorder=0, alpha=0.5)
+        # ax.plot(X.ravel(), pred, c=color)
+        col = LineCollection([
+            np.column_stack((X.ravel(), pred)),
+            np.column_stack((X.ravel(), pred+2*stdv)),
+            np.column_stack((X.ravel(), pred-2*stdv))
+        ], colors=[color, color, color], linewidths=[1.2, 0.7, 0.7], linestyles=['-', '-', '-'])
+        ax.add_collection(col, autolim=False)
+        ellipse = confidence_ellipse(x_min, y_min, ax=ax, n_std=2, facecolor=light_color, zorder=0, **kwargs)
+        # ax.plot(x_min_no_trunc, y_min_no_trunc, marker='x', ls='', markerfacecolor=color,
+        #         markeredgecolor='k', markeredgewidth=0.5, label='True', zorder=10)
+        ax.scatter(x_min_no_trunc, y_min_no_trunc, marker='X', facecolor=color,
+                   edgecolors='k', label=fr'min($y_{order}$)', zorder=10)
+        ax.plot(self.X[cond][approx_xlim_mask], self.y[cond, ord_idx][approx_xlim_mask], ls='', marker='o', c=color)
         ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
+        ax.set_ylabel(r'Energy per Particle $E/A$')
         # kf_ticks = ax.get_xticks()
         # d_ticks = self.compute_momentum(kf_ticks)
 
@@ -1198,4 +1299,35 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         self.plot_empirical_saturation(ax=ax, kf_scale=True)
         if savefig:
             pass
+        return ax, ellipse
+
+    def plot_multi_saturation(self, breakdown=None, orders=[3, 4], ax=None, savefig=None,  nugget=0, X=None,
+                              cond=None, n_samples=1000, **kwargs):
+        if ax is None:
+            ax = plt.gca()
+        if breakdown is None:
+            breakdown = self.breakdown_map[-1]
+            print('Using breakdown =', breakdown, 'MeV')
+        ellipses = []
+        ellipses_labels = []
+        for order in orders:
+            idx = self.order_index(order)
+            _, ellipse = self.plot_saturation(
+                breakdown=breakdown, order=order, ax=ax, savefig=False, color=self.colors[idx],
+                nugget=nugget, X=X, cond=cond, n_samples=n_samples, **kwargs)
+            ellipses.append(ellipse)
+            ellipses_labels.append(rf'$2\sigma(y_{{{order}}}+\delta y_{{{order}}})$')
+
+        ax.margins(x=0)
+        handles, labels = ax.get_legend_handles_labels()
+        handles = handles + ellipses
+        labels = labels + ellipses_labels
+        ax.legend(handles, labels)
+        fig = plt.gcf()
+        fig.tight_layout()
+        if savefig:
+            ords = [f'-{order}' for order in orders]
+            ords = ''.join(ords)
+            name = self.figure_name(f'sat_ellipse_ords{ords}_', breakdown=breakdown)
+            fig.savefig(name)
         return ax
