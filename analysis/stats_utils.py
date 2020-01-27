@@ -1261,6 +1261,9 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         x_min_no_trunc, y_min_no_trunc, x_min, y_min, pred, cov = self.compute_minimum(
             order=order, n_samples=n_samples, breakdown=breakdown, X=X, nugget=nugget, cond=cond
         )
+
+        if cond is None:
+            cond = slice(None, None)
         ord_idx = self.order_index(order)
         approx_xlim = x_min.min() - 0.03, x_min.max() + 0.03
         approx_xlim_mask = (self.X[cond].ravel() >= approx_xlim[0]) & (self.X[cond].ravel() <= approx_xlim[1])
