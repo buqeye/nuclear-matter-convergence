@@ -732,12 +732,14 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             df_breakdown = pd.DataFrame(np.array([breakdown, breakdown_pdf]).T, columns=[r'$\Lambda_b$ (MeV)', 'pdf'])
             df_breakdown['Order'] = fr'N$^{idx}$LO'
             df_breakdown['system'] = fr'${self.system_math_string}$'
+            df_breakdown['Body'] = self.body
             dfs_breakdown.append(df_breakdown)
 
             if ls is not None:
                 df_ls = pd.DataFrame(np.array([ls, ls_pdf]).T, columns=[r'$\ell$ (fm$^{-1}$)', 'pdf'])
                 df_ls['Order'] = fr'N$^{idx}$LO'
                 df_ls['system'] = fr'${self.system_math_string}$'
+                df_ls['Body'] = self.body
                 dfs_ls.append(df_ls)
 
             X = gm.cartesian(ls, breakdown)
@@ -745,6 +747,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             df_joint['pdf'] = joint_pdf.ravel()
             df_joint['Order'] = fr'N$^{idx}$LO'
             df_joint['system'] = fr'${self.system_math_string}$'
+            df_joint['Body'] = self.body
             dfs_joint.append(df_joint)
 
             map_idx = np.argmax(joint_pdf)
@@ -856,7 +859,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             system = self.system_strings_short[self.system]
 
         full_name = prefix + f'sys-{system}_{body}'
-        if body == 'NN+3N':
+        if body == 'NN+3N' or body == '3N':
             full_name += f'_fit-{fit_n2lo}-{fit_n3lo}'
         else:
             full_name += f'_fit-0-0'
