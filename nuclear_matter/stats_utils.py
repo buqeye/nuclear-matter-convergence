@@ -11,7 +11,7 @@ import docrep
 import seaborn as sns
 from seaborn import utils
 import pandas as pd
-from matter import nuclear_density, fermi_momentum, ratio_kf
+from .matter import nuclear_density, fermi_momentum, ratio_kf
 from os.path import join
 from scipy import stats
 from copy import deepcopy
