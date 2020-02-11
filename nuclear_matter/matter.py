@@ -43,6 +43,20 @@ def ratio_kf(momentum, breakdown=600):
     return momentum.ravel() * hbar_c / breakdown
 
 
+def ratio_density(density, breakdown=30):
+    R"""THIS IS JUST FOR A TEST.
+    Dimensionless expansion ratio of density to breakdown scale.
+
+    Parameters
+    ----------
+    density : array
+        The density in fm^{-3}
+    breakdown: float, optional
+        Breakdown scale (Lambda_b) in fm^{-3}; defaults to 30 fm^{-3}
+    """
+    return density.ravel() / breakdown
+
+
 def Lb_prior(Lb, Lb_min=300, Lb_max=1000):
     R"""
     Uniform prior for the breakdown scale (Lambda_b aka Lb)
