@@ -154,7 +154,7 @@ def joint_plot(ratio=1, height=3.):
     return fig, ax_joint, ax_marg_x, ax_marg_y
 
 
-def compute_2d_posterior(model, X, data, orders, max_idx, breakdown, ls=None, logprior=None):
+def compute_2d_posterior(model, X, data, orders, breakdown, ls=None, logprior=None, max_idx=None):
     R"""
 
     Parameters
@@ -174,7 +174,10 @@ def compute_2d_posterior(model, X, data, orders, max_idx, breakdown, ls=None, lo
     ratio_pdf : ndarray
     ls_pdf : ndarray
     """
-    model.fit(X, data[:, :max_idx + 1], orders=orders[:max_idx + 1])
+    if max_idx is not None:
+        data = data[:, :max_idx + 1]
+        orders = orders[:max_idx + 1]
+    model.fit(X, data, orders=orders)
     if ls is None:
         ls = np.exp(model.coeffs_process.kernel_.theta)
         print('Setting ls to', ls)
@@ -623,7 +626,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         self.ratio_str = ratio
         ratio = self.ratio_map[ratio]
 
-        cmaps = [plt.get_cmap(name) for name in ['Oranges', 'Greens', 'Blues', 'Reds']]
+        color_list = ['Oranges', 'Greens', 'Blues', 'Reds', 'Purples', 'Greys']
+        cmaps = [plt.get_cmap(name) for name in color_list[:len(orders)]]
         colors = [cmap(0.55 - 0.1 * (i == 0)) for i, cmap in enumerate(cmaps)]
 
         # TODO: allow `excluded` to work properly in plots, etc.
@@ -673,7 +677,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         return fermi_momentum(density, degeneracy)
 
     def setup_posteriors(self, max_idx, breakdown_min, breakdown_max, breakdown_num, ls_min, ls_max, ls_num,
-                         logprior=None):
+                         logprior=None, max_idx_labels=None):
         R"""Computes and stores the values for the breakdown and length scale posteriors.
 
         This must be run before running functions that depend on these posteriors.
@@ -725,19 +729,22 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             ls = np.linspace(ls_min, ls_max, ls_num)
         breakdown_maps = []
         ls_maps = []
-        for idx in np.atleast_1d(max_idx):
+        max_idx = np.atleast_1d(max_idx)
+        if max_idx_labels is None:
+            max_idx_labels = max_idx
+        for idx, idx_label in zip(max_idx, max_idx_labels):
             joint_pdf, breakdown_pdf, ls_pdf = self.compute_breakdown_ls_posterior(
                 breakdown, ls, max_idx=idx, logprior=logprior)
 
             df_breakdown = pd.DataFrame(np.array([breakdown, breakdown_pdf]).T, columns=[r'$\Lambda_b$ (MeV)', 'pdf'])
-            df_breakdown['Order'] = fr'N$^{idx}$LO'
+            df_breakdown['Order'] = fr'N$^{idx_label}$LO'
             df_breakdown['system'] = fr'${self.system_math_string}$'
             df_breakdown['Body'] = self.body
             dfs_breakdown.append(df_breakdown)
 
             if ls is not None:
                 df_ls = pd.DataFrame(np.array([ls, ls_pdf]).T, columns=[r'$\ell$ (fm$^{-1}$)', 'pdf'])
-                df_ls['Order'] = fr'N$^{idx}$LO'
+                df_ls['Order'] = fr'N$^{idx_label}$LO'
                 df_ls['system'] = fr'${self.system_math_string}$'
                 df_ls['Body'] = self.body
                 dfs_ls.append(df_ls)
@@ -745,7 +752,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             X = gm.cartesian(ls, breakdown)
             df_joint = pd.DataFrame(X, columns=[r'$\ell$ (fm$^{-1}$)', r'$\Lambda_b$ (MeV)'])
             df_joint['pdf'] = joint_pdf.ravel()
-            df_joint['Order'] = fr'N$^{idx}$LO'
+            df_joint['Order'] = fr'N$^{idx_label}$LO'
             df_joint['system'] = fr'${self.system_math_string}$'
             df_joint['Body'] = self.body
             dfs_joint.append(df_joint)
@@ -764,6 +771,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         self.ls = ls
         self.logprior = logprior
         self.max_idx = max_idx
+        self.max_idx_labels = max_idx_labels
         self.df_joint = df_joint
         self.df_breakdown = df_breakdown
         self.df_ls = df_ls
@@ -797,14 +805,24 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         return graph
 
     def compute_breakdown_ls_posterior(self, breakdown, ls, max_idx=None, logprior=None):
-        orders = self.orders[:max_idx + 1]
+        # orders = self.orders[:max_idx + 1]
+        orders = self.orders
         model = gm.TruncationGP(ref=self.ref, ratio=self.ratio, excluded=self.excluded, **self.kwargs)
         X = self.X_train
         data = self.y_train
         joint_pdf, Lb_pdf, ls_pdf = compute_2d_posterior(
-            model, X, data, orders, max_idx, breakdown, ls, logprior=logprior
+            model, X, data, orders, breakdown, ls, logprior=logprior, max_idx=max_idx,
         )
         return joint_pdf, Lb_pdf, ls_pdf
+
+    def compute_best_length_scale_for_breakdown(self, breakdown, max_idx):
+        ord = rf'N$^{max_idx}$LO'
+        df_best = self.df_joint[
+            (self.df_joint[r'$\Lambda_b$ (MeV)'] == breakdown) &
+            (self.df_joint['Order'] == ord)
+        ]
+        ls_max_idx = df_best['pdf'].idxmax()
+        return df_best.loc[ls_max_idx][r'$\ell$ (fm$^{-1}$)']
 
     def order_index(self, order):
         return np.squeeze(np.argwhere(self.orders == order))
