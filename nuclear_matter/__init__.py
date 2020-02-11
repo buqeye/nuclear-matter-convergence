@@ -6,3 +6,6 @@ from .matter import fermi_momentum
 from .matter import ratio_kf
 from .matter import Lb_prior
 from .matter import Lb_logprior
+
+from .graphs import setup_rc_params
+from .graphs import lighten_color
