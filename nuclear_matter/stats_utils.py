@@ -12,6 +12,7 @@ import seaborn as sns
 from seaborn import utils
 import pandas as pd
 from .matter import nuclear_density, fermi_momentum, ratio_kf
+from .graphs import confidence_ellipse, confidence_ellipse_mean_cov
 from os.path import join
 from scipy import stats
 from copy import deepcopy
@@ -396,68 +397,68 @@ def minimum_samples(mean, cov, n=5000, x=None):
     return min_idxs, min_y
 
 
-def confidence_ellipse(x, y, ax, n_std=3.0, facecolor='none', **kwargs):
-    """
-    Create a plot of the covariance confidence ellipse of *x* and *y*.
-
-    Parameters
-    ----------
-    x, y : array-like, shape (n, )
-        Input data.
-    ax : matplotlib.axes.Axes
-        The axes object to draw the ellipse into.
-    n_std : float
-        The number of standard deviations to determine the ellipse's radii.
-    facecolor : str
-        The color of the ellipse
-
-    Returns
-    -------
-    matplotlib.patches.Ellipse
-
-    Other parameters
-    ----------------
-    kwargs : `~matplotlib.patches.Patch` properties
-    """
-    import matplotlib.transforms as transforms
-    if x.size != y.size:
-        raise ValueError("x and y must be the same size")
-
-    cov = np.cov(x, y)
-    pearson = cov[0, 1]/np.sqrt(cov[0, 0] * cov[1, 1])
-    # Using a special case to obtain the eigenvalues of this
-    # two-dimensional dataset.
-    ell_radius_x = np.sqrt(1 + pearson)
-    ell_radius_y = np.sqrt(1 - pearson)
-    ellipse = Ellipse(
-        (0, 0),
-        width=ell_radius_x * 2,
-        height=ell_radius_y * 2,
-        facecolor=facecolor,
-        **kwargs
-    )
-
-    # Calculating the standard deviation of x from
-    # the square root of the variance and multiplying
-    # with the given number of standard deviations.
-    scale_x = np.sqrt(cov[0, 0]) * n_std
-    mean_x = np.mean(x)
-
-    # calculating the standard deviation of y ...
-    scale_y = np.sqrt(cov[1, 1]) * n_std
-    mean_y = np.mean(y)
-
-    trans = transforms.Affine2D() \
-        .rotate_deg(45) \
-        .scale(scale_x, scale_y) \
-        .translate(mean_x, mean_y)
-
-    ellipse.set_transform(trans + ax.transData)
-    # sns.kdeplot(x, y, ax=ax)
-    scat_color = darken_color(facecolor, 0.5)
-    ax.plot(x, y, ls='', marker='.', markersize=0.6, color=scat_color)
-    ax.add_patch(ellipse)
-    return ellipse
+# def confidence_ellipse(x, y, ax, n_std=3.0, facecolor='none', **kwargs):
+#     """
+#     Create a plot of the covariance confidence ellipse of *x* and *y*.
+#
+#     Parameters
+#     ----------
+#     x, y : array-like, shape (n, )
+#         Input data.
+#     ax : matplotlib.axes.Axes
+#         The axes object to draw the ellipse into.
+#     n_std : float
+#         The number of standard deviations to determine the ellipse's radii.
+#     facecolor : str
+#         The color of the ellipse
+#
+#     Returns
+#     -------
+#     matplotlib.patches.Ellipse
+#
+#     Other parameters
+#     ----------------
+#     kwargs : `~matplotlib.patches.Patch` properties
+#     """
+#     import matplotlib.transforms as transforms
+#     if x.size != y.size:
+#         raise ValueError("x and y must be the same size")
+#
+#     cov = np.cov(x, y)
+#     pearson = cov[0, 1]/np.sqrt(cov[0, 0] * cov[1, 1])
+#     # Using a special case to obtain the eigenvalues of this
+#     # two-dimensional dataset.
+#     ell_radius_x = np.sqrt(1 + pearson)
+#     ell_radius_y = np.sqrt(1 - pearson)
+#     ellipse = Ellipse(
+#         (0, 0),
+#         width=ell_radius_x * 2,
+#         height=ell_radius_y * 2,
+#         facecolor=facecolor,
+#         **kwargs
+#     )
+#
+#     # Calculating the standard deviation of x from
+#     # the square root of the variance and multiplying
+#     # with the given number of standard deviations.
+#     scale_x = np.sqrt(cov[0, 0]) * n_std
+#     mean_x = np.mean(x)
+#
+#     # calculating the standard deviation of y ...
+#     scale_y = np.sqrt(cov[1, 1]) * n_std
+#     mean_y = np.mean(y)
+#
+#     trans = transforms.Affine2D() \
+#         .rotate_deg(45) \
+#         .scale(scale_x, scale_y) \
+#         .translate(mean_x, mean_y)
+#
+#     ellipse.set_transform(trans + ax.transData)
+#     # sns.kdeplot(x, y, ax=ax)
+#     scat_color = darken_color(facecolor, 0.5)
+#     ax.plot(x, y, ls='', marker='.', markersize=0.6, color=scat_color)
+#     ax.add_patch(ellipse)
+#     return ellipse
 
 
 def lighten_color(color, amount=0.5):
@@ -525,32 +526,142 @@ class ConvergenceAnalysis:
     %(ConjugateGaussianProcess.parameters)s
     """
 
-    def __init__(self, X, y, orders, train, valid, ref, ratio, *, excluded=None, colors=None, **kwargs):
+    def __init__(self, X, y2, y3, orders, train, valid, ref2, ref3, ratio, body, *, excluded=None, colors=None, **kwargs):
         self.X = X
-        self.y = y
-        self.orders = orders
+        self.orders_original = np.atleast_1d(orders)
+
+        marker_list = ['^', 'X', 'o', 's']
+        markerfillstyle_2bf = 'full'
+        markerfillstyle_3bf = 'left'
+        colors_original = colors
+
+        if body == 'Appended':
+            print('Appending 2bf and 3bf predictions...')
+            try:
+                ref3_vals = ref3(X)
+            except TypeError:
+                ref3_vals = ref3
+            try:
+                ratio_vals = ratio(X)
+            except TypeError:
+                ratio_vals = ratio
+            c2 = gm.coefficients(y2, ratio_vals, ref2, orders)
+            c3 = gm.coefficients(y3-y2, ratio_vals, ref3_vals, orders)
+            c = []
+            colors_all = []
+            orders_all = []
+            markers = []
+            markerfillstyles = []
+            n_bodies = []
+
+            for i, n in enumerate(orders):
+                c.append(c2[:, i])
+                orders_all.append(n)
+                colors_all.append(colors[i])
+                markers.append(marker_list[i])
+                markerfillstyles.append(markerfillstyle_2bf)
+                n_bodies.append('2')
+                if n > 2:  # Has 3-body forces
+                    c.append(c3[:, i])
+                    orders_all.append(n)
+                    colors_all.append(colors[i])
+                    markers.append(marker_list[i])
+                    markerfillstyles.append(markerfillstyle_3bf)
+                    n_bodies.append('3')
+            c = np.array(c).T
+            orders_all = np.array(orders_all)
+            print(f'Reseting orders to be {orders_all}')
+            y = gm.partials(c, ratio_vals, ref2, orders_all)
+
+            self.y = y
+            self.orders = orders_all
+            self.ref = ref2
+        elif body == 'NN-only':
+            self.y = y2
+            self.orders = orders
+            self.ref = ref2
+            colors_all = colors
+            markerfillstyles = [markerfillstyle_2bf] * len(orders)
+            n_bodies = ['2'] * len(orders)
+            markers = marker_list
+        elif body == 'NN+3N':
+            self.y = y3
+            self.orders = orders
+            self.ref = ref2
+            colors_all = colors
+            markerfillstyles = [markerfillstyle_2bf] * len(orders)
+            n_bodies = ['2+3'] * len(orders)
+            markers = marker_list
+        elif body == '3N':
+            self.y = y3 - y2
+            self.orders = orders
+            self.ref = ref3
+            colors_all = colors
+            markerfillstyles = [markerfillstyle_3bf] * len(orders)
+            n_bodies = ['3'] * len(orders)
+            markers = marker_list
+        else:
+            raise ValueError('body not in allowed values')
 
         self.train = train
         self.valid = valid
         self.X_train = X[train]
         self.X_valid = X[valid]
-        self.y_train = y[train]
-        self.y_valid = y[valid]
+
+        self.y2 = y2
+        if body != '3N':
+            self.y2_train = y2[train]
+            self.y2_valid = y2[valid]
+        else:
+            self.y2_train = None
+            self.y2_train = None
+
+        self.y3 = y3
+        if body != 'NN-only':
+            self.y3_train = y3[train]
+            self.y3_valid = y3[valid]
+        else:
+            self.y3_train = None
+            self.y3_train = None
+
+        self.y_train = self.y[train]
+        self.y_valid = self.y[valid]
+
+        self.n_bodies = n_bodies
 
         self.ratio = ratio
-        self.ref = ref
+        # self.ref = ref
+        self.ref2 = ref2
+        self.ref3 = ref3
         self.excluded = excluded
         if excluded is None:
-            excluded_mask = np.ones_like(orders, dtype=bool)
+            excluded_mask = np.ones_like(self.orders, dtype=bool)
         else:
-            excluded_mask = ~np.isin(orders, excluded)
+            excluded_mask = ~np.isin(self.orders, excluded)
         self.excluded_mask = excluded_mask
         self.orders_not_excluded = self.orders[excluded_mask]
 
-        colors = np.atleast_1d(colors)
-        self.colors_not_excluded = colors[excluded_mask]
+        if excluded is None:
+            excluded_mask_original = np.ones_like(orders, dtype=bool)
+        else:
+            excluded_mask_original = ~np.isin(orders, excluded)
+        self.excluded_mask_original = excluded_mask_original
 
-        self.colors = colors
+        colors_all = np.atleast_1d(colors_all)
+        self.colors_not_excluded = colors_all[excluded_mask]
+        self.colors = colors_all
+
+        self.colors_original = colors_original = np.atleast_1d(colors_original)
+        self.colors_original_not_excluded = colors_original[excluded_mask_original]
+
+        self.orders_original_not_excluded = self.orders_original[excluded_mask_original]
+
+        self.markers = markers = np.atleast_1d(markers)
+        self.markers_not_excluded = markers[excluded_mask]
+
+        self.markerfillstyles = markerfillstyles = np.atleast_1d(markerfillstyles)
+        self.markerfillstyles_not_excluded = markerfillstyles[excluded_mask]
+
         self.kwargs = kwargs
 
     def compute_coefficients(self, show_excluded=False, **kwargs):
@@ -619,7 +730,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
     MD_label = r'\mathrm{D}_{\mathrm{MD}}^2'
     PC_label = r'\mathrm{D}_{\mathrm{PC}}'
 
-    def __init__(self, X, y, orders, train, valid, ref, ratio, density, *, system='neutron',
+    def __init__(self, X, y2, y3, orders, train, valid, ref2, ref3, ratio, density, *, system='neutron',
                  fit_n2lo=None, fit_n3lo=None, Lambda=None, body=None, savefigs=False,
                  fig_path='new_figures', **kwargs):
 
@@ -630,9 +741,13 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         cmaps = [plt.get_cmap(name) for name in color_list[:len(orders)]]
         colors = [cmap(0.55 - 0.1 * (i == 0)) for i, cmap in enumerate(cmaps)]
 
+        body_vals = ['NN-only', 'NN+3N', '3N', 'Appended']
+        if body not in body_vals:
+            raise ValueError(f'body must be in {body_vals}')
+
         # TODO: allow `excluded` to work properly in plots, etc.
         super().__init__(
-            X, y, orders, train, valid, ref, ratio, colors=colors, **kwargs)
+            X, y2, y3, orders, train, valid, ref2, ref3, ratio, body=body, colors=colors, **kwargs)
         self.system = system
         self.fit_n2lo = fit_n2lo
         self.fit_n3lo = fit_n3lo
@@ -738,6 +853,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
             df_breakdown = pd.DataFrame(np.array([breakdown, breakdown_pdf]).T, columns=[r'$\Lambda_b$ (MeV)', 'pdf'])
             df_breakdown['Order'] = fr'N$^{idx_label}$LO'
+            df_breakdown['Order Index'] = idx
             df_breakdown['system'] = fr'${self.system_math_string}$'
             df_breakdown['Body'] = self.body
             dfs_breakdown.append(df_breakdown)
@@ -745,6 +861,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             if ls is not None:
                 df_ls = pd.DataFrame(np.array([ls, ls_pdf]).T, columns=[r'$\ell$ (fm$^{-1}$)', 'pdf'])
                 df_ls['Order'] = fr'N$^{idx_label}$LO'
+                df_ls['Order Index'] = idx
                 df_ls['system'] = fr'${self.system_math_string}$'
                 df_ls['Body'] = self.body
                 dfs_ls.append(df_ls)
@@ -753,6 +870,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             df_joint = pd.DataFrame(X, columns=[r'$\ell$ (fm$^{-1}$)', r'$\Lambda_b$ (MeV)'])
             df_joint['pdf'] = joint_pdf.ravel()
             df_joint['Order'] = fr'N$^{idx_label}$LO'
+            df_joint['Order Index'] = idx
             df_joint['system'] = fr'${self.system_math_string}$'
             df_joint['Body'] = self.body
             dfs_joint.append(df_joint)
@@ -792,8 +910,12 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             breakdown=breakdown, show_excluded=show_excluded
         )
         colors = self.colors
+        markerfillstyles = self.markerfillstyles
+        markers = self.markers
         if not show_excluded:
             colors = self.colors_not_excluded
+            markerfillstyles = self.markerfillstyles_not_excluded
+            markers = self.markers_not_excluded
             coeffs_not_excluded = self.compute_coefficients(breakdown=breakdown, show_excluded=False)
 
         process = gm.ConjugateGaussianProcess(**self.kwargs)
@@ -801,7 +923,10 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         mean = process.mean(self.X_valid)
         cov = process.cov(self.X_valid)
         # But it may be useful to visualize the diagnostics off all coefficients
-        graph = gm.GraphicalDiagnostic(coeffs[self.valid], mean, cov, colors=colors, gray=gray, black=softblack)
+        graph = gm.GraphicalDiagnostic(
+            coeffs[self.valid], mean, cov, colors=colors, gray=gray, black=softblack,
+            markerfillstyles=markerfillstyles, markers=markers
+        )
         return graph
 
     def compute_breakdown_ls_posterior(self, breakdown, ls, max_idx=None, logprior=None):
@@ -827,6 +952,15 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
     def order_index(self, order):
         return np.squeeze(np.argwhere(self.orders == order))
 
+    def setup_and_fit_truncation_process(self, breakdown):
+        model = gm.TruncationGP(
+            ratio=self.ratio, ref=self.ref, excluded=self.excluded,
+            ratio_kws=dict(breakdown=breakdown), **self.kwargs
+        )
+        # Only update hyperparameters based on train
+        model.fit(self.X_train, y=self.y_train, orders=self.orders)
+        return model
+
     def compute_minimum(self, order, n_samples, breakdown=None, X=None, nugget=0, cond=None):
         if X is None:
             X = self.X
@@ -836,7 +970,24 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             cond = self.train
         x = X.ravel()
         # ord = self.orders == order
-        ord = np.squeeze(np.argwhere(self.orders == order))
+        orders = self.orders_original
+        # colors = self.colors_original
+
+        if self.body == 'NN-only':
+            y = self.y2
+        elif self.body == 'NN+3N':
+            y = self.y3
+        elif self.body == 'Appended':
+            y = self.y3
+        elif self.body == '3N':
+            y = self.y3
+        else:
+            raise ValueError('body not in allowed values')
+
+        ord = np.squeeze(np.argwhere(orders == order))
+
+        if ord.ndim > 0:
+            raise ValueError('Found multiple orders that match order')
 
         model = gm.TruncationGP(
             ratio=self.ratio, ref=self.ref, excluded=self.excluded,
@@ -846,7 +997,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         model.fit(self.X_train, y=self.y_train, orders=self.orders)
         print(model.coeffs_process.kernel_)
         # But then condition on `cond` X, y points to get a good interpolant
-        pred, cov = model.predict(X, order=order, return_cov=True, Xc=self.X[cond], y=self.y[cond, ord], kind='both')
+        pred, cov = model.predict(X, order=order, return_cov=True, Xc=self.X[cond], y=y[cond, ord], kind='both')
         # pred, cov = model.predict(X, order=order, return_cov=True, kind='both')
         # pred += self.y[:, ord]
         # cov += np.diag(cov) * nugget * np.eye(cov.shape[0])
@@ -934,51 +1085,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         )
         return info
 
-    def plot_coefficients(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False,
-                          show_excluded=False):
-        if breakdown is None:
-            breakdown = self.breakdown_map[-1]
-            print('Using breakdown =', breakdown, 'MeV')
-        coeffs = self.compute_coefficients(breakdown=breakdown, show_excluded=show_excluded)
-        colors = self.colors
-        orders = self.orders
-        if not show_excluded:
-            colors = self.colors_not_excluded
-            orders = self.orders_not_excluded
-
-        if ax is None:
-            fig, ax = plt.subplots(figsize=(3.4, 3.4))
-        kf = self.X.ravel()
-        d = self.density
-        ax2 = ax.twiny()
-        train = self.train
-
-        light_colors = [lighten_color(c, 0.5) for c in colors]
-
-        if show_process:
-            model = gm.ConjugateGaussianProcess(**self.kwargs)
-            model.fit(self.X_train, coeffs[train])
-            pred, std = model.predict(self.X, return_std=True)
-            mu = model.center_
-            cbar = np.sqrt(model.cbar_sq_mean_)
-            ax.axhline(mu, 0, 1, c='k', zorder=0)
-            ax.axhline(cbar, 0, 1, c=gray, zorder=0)
-            ax.axhline(-cbar, 0, 1, c=gray, zorder=0)
-
-        for i, n in enumerate(orders):
-            z = i
-            ax.plot(kf, coeffs[:, i], c=colors[i], label=fr'$c_{{{n}}}$', zorder=z)
-            ax.plot(kf[train], coeffs[train, i], marker='o', ls='', c=colors[i], zorder=z)
-            if show_process:
-                ax.plot(kf, pred[:, i], c=colors[i], zorder=z, ls='--')
-                ax.fill_between(
-                    kf, pred[:, i] + 2*std, pred[:, i] - 2*std, zorder=z,
-                    lw=0.5, alpha=1, facecolor=light_colors[i], edgecolor=colors[i]
-                )
-
-        ax2.plot(d, np.zeros_like(d), ls='', c=gray, zorder=-1)  # Dummy data to set up ticks
-        ax.axhline(0, 0, 1, ls='--', c=gray, zorder=-1)
-        ax2.set_xlabel(r'Density $n$ (fm$^{-3}$)')
+    def compute_y_label(self):
         if self.system == 'neutron':
             y_label = fr'Energy per Neutron '
         elif self.system == 'symmetric':
@@ -988,10 +1095,144 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         else:
             raise ValueError('system has wrong value')
         y_label += fr'${self.system_math_strings[self.system]}$'
+        return y_label
+
+    def setup_ticks(self, ax, is_density_primary, train, valid, show_2nd_axis=True):
+        d_label = r'Density $n$ (fm$^{-3}$)'
+        kf_label = r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)'
+        # ax.set_xticks(x_ticks)
+        # ax2.set_xticks(x_ticks)
+
+        if is_density_primary:
+            x_label = d_label
+            x = self.density
+            x_ticks = x[train]
+
+            if show_2nd_axis:
+                x_label2 = kf_label
+                x_ticks2 = self.compute_momentum(x_ticks)
+
+            # ax.set_xlabel(d_label)
+            # ax.set_xticks(x_ticks)
+            # ax.set_xticks(self.density[valid], minor=True)
+            #
+            # ax2.plot(x_ticks, ax.get_yticks().mean() * np.ones_like(x_ticks), ls='')
+            # ax2.set_xlabel(kf_label)
+            # ax2.set_xticklabels(self.compute_momentum(x_ticks))
+        else:
+            x_label = kf_label
+            x = self.X.ravel()
+            x_ticks = x[train]
+
+            if show_2nd_axis:
+                x_label2 = d_label
+                x_ticks2 = self.compute_density(x_ticks)
+
+            # ax.set_xlabel(kf_label)
+            # x_ticks = self.X[train].ravel()
+            # ax.set_xticks(x_ticks)
+            # ax.set_xticks(self.X[valid].ravel(), minor=True)
+            #
+            # ax2.plot(x_ticks, ax.get_yticks().mean() * np.ones_like(x_ticks), ls='')
+            # ax2.set_xlabel(d_label)
+            # ax2.set_xticks(x_ticks)
+            # ax2.set_xticklabels(self.compute_density(x_ticks))
+
+        ax.set_xlabel(x_label)
+        ax.set_xticks(x_ticks)
+        ax.set_xticks(x[valid], minor=True)
+        ax.tick_params(right=True)
+
+        y_label = self.compute_y_label()
         ax.set_ylabel(y_label)
-        ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
-        ax.set_xticks(self.X_valid.ravel(), minor=True)
-        ax.legend()
+
+        if show_2nd_axis:
+            ax2 = ax.twiny()
+            # Plot invisible line to get ticks right
+            ax2.plot(x_ticks, ax.get_yticks().mean() * np.ones_like(x_ticks), ls='')
+            ax2.set_xlabel(x_label2)
+            ax2.set_xticks(x_ticks)
+            ax2.set_xticks(x[valid], minor=True)
+            ax2.set_xticklabels([f'{tick:0.2f}' for tick in x_ticks2])
+            return ax, ax2
+        return ax
+
+    def plot_coefficients(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False,
+                          show_excluded=False, show_2nd_axis=True):
+        if breakdown is None:
+            breakdown = self.breakdown_map[-1]
+            print('Using breakdown =', breakdown, 'MeV')
+
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(3.4, 3.4))
+        kf = self.X.ravel()
+        density = self.density
+        train = self.train
+
+        if show_process:
+            coeffs_not_excluded = self.compute_coefficients(breakdown=breakdown, show_excluded=False)
+            model = gm.ConjugateGaussianProcess(**self.kwargs)
+            model.fit(self.X_train, coeffs_not_excluded[train])
+            print(model.kernel_)
+            if show_excluded:
+                model_all = gm.ConjugateGaussianProcess(**self.kwargs)
+                coeffs_all = self.compute_coefficients(breakdown=breakdown, show_excluded=True)
+                model_all.fit(self.X_train, coeffs_all[train])
+                pred, std = model_all.predict(self.X, return_std=True)
+            else:
+                pred, std = model.predict(self.X, return_std=True)
+            mu = model.center_
+            cbar = np.sqrt(model.cbar_sq_mean_)
+            ax.axhline(mu, 0, 1, c='k', zorder=0)
+            ax.axhline(2*cbar, 0, 1, c=gray, zorder=0)
+            ax.axhline(-2*cbar, 0, 1, c=gray, zorder=0)
+
+        coeffs = self.compute_coefficients(breakdown=breakdown, show_excluded=show_excluded)
+        colors = self.colors
+        orders = self.orders
+        markers = self.markers
+        markerfillstyles = self.markerfillstyles
+        if not show_excluded:
+            colors = self.colors_not_excluded
+            orders = self.orders_not_excluded
+            markers = self.markers_not_excluded
+            markerfillstyles = self.markerfillstyles_not_excluded
+        light_colors = [lighten_color(c, 0.5) for c in colors]
+
+        is_density_primary = True
+        if is_density_primary:
+            x = density
+        else:
+            x = kf
+
+        for i, n in enumerate(orders):
+            z = i / 20
+            ax.plot(
+                x, coeffs[:, i], c=colors[i], label=fr'$c_{{{n}}}^{{({self.n_bodies[i]})}}$', zorder=z,
+                markevery=train, marker=markers[i], fillstyle=markerfillstyles[i])
+            # ax.plot(x[train], coeffs[train, i], marker=markers[i], ls='', c=colors[i], zorder=z,
+            #         fillstyle=markerfillstyles[i])
+            if show_process:
+                ax.plot(x, pred[:, i], c=colors[i], zorder=z, ls='--')
+                ax.fill_between(
+                    x, pred[:, i] + 2*std, pred[:, i] - 2*std, zorder=z,
+                    lw=0.5, alpha=1, facecolor=light_colors[i], edgecolor=colors[i]
+                )
+        ax.axhline(0, 0, 1, ls='--', c=gray, zorder=-1)
+        # ax2 = ax.twiny()
+        # ax2.plot(d, np.zeros_like(d), ls='', c=gray, zorder=-1)  # Dummy data to set up ticks
+        # ax2.set_xlabel(r'Density $n$ (fm$^{-3}$)')
+
+        # y_label = self.compute_y_label()
+        # ax.set_ylabel(y_label)
+        # ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
+        # ax.set_xticks(self.X_valid.ravel(), minor=True)
+        if len(orders) > 4:
+            ax.legend(ncol=3)
+        else:
+            ax.legend(ncol=2)
+
+        self.setup_ticks(ax, is_density_primary, train=train, valid=self.valid, show_2nd_axis=show_2nd_axis)
 
         if savefig is None:
             savefig = self.savefigs
@@ -1010,7 +1251,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         return ax
 
     def plot_observables(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False,
-                         show_excluded=False):
+                         show_excluded=False, show_2nd_axis=True):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
@@ -1019,19 +1260,12 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             fig, ax = plt.subplots(figsize=(3.4, 3.4))
         ax.margins(x=0.)
         kf = self.X.ravel()
-        # d = self.density
-        # ax2 = ax.twiny()
-        # train = self.train
 
-        # coeffs = self.compute_coefficients(breakdown=breakdown)
-        colors = self.colors
-        # orders = self.orders
-        # if not show_excluded:
-        #     coeffs = coeffs[:, self.excluded_mask]
-        #     colors = self.colors_not_excluded
-        #     orders = self.orders_not_excluded
-
-        light_colors = [lighten_color(c, 0.5) for c in colors]
+        is_density_primary = True
+        if is_density_primary:
+            x = self.density
+        else:
+            x = kf
 
         if show_process:
             model = gm.TruncationGP(
@@ -1040,59 +1274,97 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             )
             model.fit(self.X_train, y=self.y_train, orders=self.orders)
 
-        for i, n in enumerate(self.orders):
-            z = i
+        if self.body == 'NN-only':
+            y = self.y2
+        elif self.body == 'NN+3N':
+            y = self.y3
+        elif self.body == 'Appended':
+            y = self.y3
+        elif self.body == '3N':
+            y = self.y3
+        else:
+            raise ValueError('body not in allowed values')
+
+        orders = self.orders_original
+        colors = self.colors_original
+        if not show_excluded:
+            # coeffs = coeffs[:, self.excluded_mask]
+            colors = self.colors_original_not_excluded
+            orders = self.orders_original_not_excluded
+
+        light_colors = [lighten_color(c, 0.5) for c in colors]
+
+        for i, n in enumerate(orders):
+            z = i / 20
             if n not in self.orders_not_excluded and not show_excluded:
                 # Don't plot orders if we've excluded them
                 continue
-            ax.plot(kf, self.y[:, i], c=colors[i], label=fr'N$^{i}$LO', zorder=z)
+            order_label = n if n in [0, 1] else n - 1
+            ax.plot(x, y[:, i], c=colors[i], label=fr'N$^{order_label}$LO', zorder=z)
             # ax.plot(kf[train], self.y[train, i], marker='o', ls='', c=colors[i], zorder=z)
             if show_process:
                 _, std = model.predict(self.X, order=n, return_std=True, kind='trunc')
-                ax.plot(kf, self.y[:, i], c=colors[i], zorder=z, ls='--')
+                if self.body == 'Appended':
+                    n_3bf = n if n >= 3 else 3  # 3-body forces don't enter until N3LO
+                    _, std_3bf = model.predict(self.X, order=n_3bf, return_std=True, kind='trunc')
+                    try:
+                        ref3_vals = self.ref3(self.X)
+                    except TypeError:
+                        ref3_vals = self.ref3
+                    try:
+                        ref2_vals = self.ref2(self.X)
+                    except TypeError:
+                        ref2_vals = self.ref2
+                    # For appended, the standard reference is the 2-body one. So swap for the 3-body ref
+                    std_3bf *= ref3_vals / ref2_vals
+                    std = np.sqrt(std**2 + std_3bf**2)
+                ax.plot(x, y[:, i], c=colors[i], zorder=z, ls='--')
                 ax.fill_between(
-                    kf, self.y[:, i] + 2*std, self.y[:, i] - 2*std, zorder=z,
+                    x, y[:, i] + 2*std, y[:, i] - 2*std, zorder=z,
                     lw=0.5, alpha=1, facecolor=light_colors[i], edgecolor=colors[i]
                 )
 
         # ax2.plot(d, self.y[:, 0], ls='', c=gray, zorder=-1)  # Dummy data to set up ticks
         # ax.axhline(0, 0, 1, ls='--', c=gray, zorder=-1)
 
-        if self.system == 'neutron':
-            y_label = fr'Energy per Neutron '
-        elif self.system == 'symmetric':
-            y_label = 'Energy per Particle '
-        elif self.system == 'difference':
-            y_label = 'Symmetry Energy '
-        else:
-            raise ValueError('system has wrong value')
-
-        y_label += fr'${self.system_math_strings[self.system]}$'
-        ax.set_ylabel(y_label)
-        ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
-        ax.set_xticks(self.X_valid.ravel(), minor=True)
+        # if self.system == 'neutron':
+        #     y_label = fr'Energy per Neutron '
+        # elif self.system == 'symmetric':
+        #     y_label = 'Energy per Particle '
+        # elif self.system == 'difference':
+        #     y_label = 'Symmetry Energy '
+        # else:
+        #     raise ValueError('system has wrong value')
+        #
+        # y_label += fr'${self.system_math_strings[self.system]}$'
+        # y_label = self.compute_y_label()
+        # ax.set_ylabel(y_label)
+        # ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
+        # ax.set_xticks(self.X_valid.ravel(), minor=True)
         ax.legend()
 
         ax.margins(x=0.)
-        if self.system == 'neutron':
-            kf_ticks = np.array([1.2, 1.4, 1.6, 1.8])
-        elif self.system == 'symmetric':
-            kf_ticks = np.array([1., 1.2, 1.4])
-        else:
-            kf_ticks = np.array([1., 1.2, 1.4])
-        ax.set_xticks(kf_ticks)
-        ax2 = ax.twiny()
-        ax2.margins(x=0.)
-        ax.set_xlim(kf[0], kf[-1])
-        ax2.set_xlim(kf[0], kf[-1])
-        # ax2.set_xlim(ax.get_xlim())
-        d_ticks = self.compute_density(kf_ticks)
-        ax2.set_xticks(kf_ticks)
-        ax2.set_xticks([self.compute_momentum(0.164)], minor=True)
-        ax2.set_xticklabels([f'{dd:0.3}' for dd in d_ticks])
-        ax2.set_xlabel(r'Density $n$ (fm$^{-3}$)')
+        from matplotlib.ticker import MultipleLocator
+        # if self.system == 'neutron':
+        #     kf_ticks = np.array([1.2, 1.4, 1.6, 1.8])
+        # elif self.system == 'symmetric':
+        #     kf_ticks = np.array([1., 1.2, 1.4])
+        # else:
+        #     kf_ticks = np.array([1., 1.2, 1.4])
+        # ax.set_xticks(kf_ticks)
+        ax.xaxis.set_major_locator(MultipleLocator(0.2))
+
+        # ax2 = ax.twiny()
+        # ax2.margins(x=0.)
+        ax.set_xlim(x[0], x[-1])
+
+        axes = self.setup_ticks(
+            ax, is_density_primary, train=self.train, valid=self.valid, show_2nd_axis=show_2nd_axis)
+        if show_2nd_axis:
+            axes[-1].set_xlim(x[0], x[-1])
+
         if self.system == 'symmetric':
-            self.plot_empirical_saturation(ax, kf_scale=True)
+            self.plot_empirical_saturation(ax, is_density_primary=is_density_primary)
 
         if savefig is None:
             savefig = self.savefigs
@@ -1234,7 +1506,9 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         ax_cs = fig.add_subplot(spec[:, :3])
         ax_md = fig.add_subplot(spec[:, 3])
         ax_pc = fig.add_subplot(spec[:, 4:])
-        self.plot_coefficients(breakdown=breakdown, ax=ax_cs, show_process=True, savefig=False)
+        show_2nd_axis = self.system != self.system_strings['difference']
+        self.plot_coefficients(
+            breakdown=breakdown, ax=ax_cs, show_process=True, savefig=False, show_2nd_axis=show_2nd_axis)
         self.plot_md_squared(breakdown=breakdown, ax=ax_md, savefig=False)
         self.plot_pchol(breakdown=breakdown, ax=ax_pc, savefig=False)
 
@@ -1251,7 +1525,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
                 return fig, info
         return fig
 
-    def plot_empirical_saturation(self, ax=None, kf_scale=True):
+    def plot_empirical_saturation(self, ax=None, is_density_primary=True):
         from matplotlib.patches import Rectangle
         # From Drischler 2018 arXiv:1710.08220
         n0 = 0.164
@@ -1260,7 +1534,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         y0_std = np.sqrt(0.37 ** 2 + 0.2 ** 2)
         left = n0 - n0_std
         right = n0 + n0_std
-        if kf_scale:
+        if not is_density_primary:
             left = self.compute_momentum(left)
             right = self.compute_momentum(right)
         rect = Rectangle(
@@ -1285,12 +1559,22 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
         if cond is None:
             cond = slice(None, None)
-        ord_idx = self.order_index(order)
+        # ord_idx = self.order_index(order)
+        ord_idx = np.squeeze(np.argwhere(self.orders_original == order))
         approx_xlim = x_min.min() - 0.03, x_min.max() + 0.03
         approx_xlim_mask = (self.X[cond].ravel() >= approx_xlim[0]) & (self.X[cond].ravel() <= approx_xlim[1])
 
+        is_density_primary = True
+
+        if is_density_primary:
+            x_min_no_trunc = self.compute_density(x_min_no_trunc)
+            x_min = self.compute_density(x_min)
+            x_all = self.compute_density(X.ravel())
+        else:
+            x_all = X.ravel()
+
         if color is None:
-            color = self.colors[ord_idx]
+            color = self.colors_original[ord_idx]
         light_color = lighten_color(color)
         # TODO: Add scatter plots
         # compute z-scores from all EDFs?
@@ -1299,18 +1583,42 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         # ax.fill_between(X.ravel(), pred+stdv, pred-stdv, color=color, zorder=0, alpha=0.5)
         # ax.plot(X.ravel(), pred, c=color)
         col = LineCollection([
-            np.column_stack((X.ravel(), pred)),
-            np.column_stack((X.ravel(), pred+2*stdv)),
-            np.column_stack((X.ravel(), pred-2*stdv))
+            np.column_stack((x_all, pred)),
+            np.column_stack((x_all, pred+2*stdv)),
+            np.column_stack((x_all, pred-2*stdv))
         ], colors=[color, color, color], linewidths=[1.2, 0.7, 0.7], linestyles=['-', '-', '-'])
         ax.add_collection(col, autolim=False)
-        ellipse = confidence_ellipse(x_min, y_min, ax=ax, n_std=2, facecolor=light_color, zorder=0, **kwargs)
+        ellipse = confidence_ellipse(
+            x_min, y_min, ax=ax, n_std=2, facecolor=light_color,
+            zorder=0, show_scatter=True, **kwargs
+        )
         # ax.plot(x_min_no_trunc, y_min_no_trunc, marker='x', ls='', markerfacecolor=color,
         #         markeredgecolor='k', markeredgewidth=0.5, label='True', zorder=10)
         ax.scatter(x_min_no_trunc, y_min_no_trunc, marker='X', facecolor=color,
                    edgecolors='k', label=fr'min($y_{order}$)', zorder=10)
-        ax.plot(self.X[cond][approx_xlim_mask], self.y[cond, ord_idx][approx_xlim_mask], ls='', marker='o', c=color)
-        ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
+        # ax.scatter(x_min, y_min, marker='X', facecolor=color,
+        #            edgecolors='k', label=fr'min($y_{order}$)', zorder=10)
+
+
+        if self.body == 'NN-only':
+            y = self.y2
+        elif self.body == 'NN+3N':
+            y = self.y3
+        elif self.body == 'Appended':
+            y = self.y3
+        elif self.body == '3N':
+            y = self.y3
+        else:
+            raise ValueError('body not in allowed values')
+
+        if is_density_primary:
+            ax.plot(self.density[cond][approx_xlim_mask], y[cond, ord_idx][approx_xlim_mask],
+                    ls='', marker='o', c=color)
+            ax.set_xlabel(r'Density $n$ (fm$^{-3}$)')
+        else:
+            ax.plot(self.X[cond][approx_xlim_mask], y[cond, ord_idx][approx_xlim_mask],
+                    ls='', marker='o', c=color)
+            ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
         ax.set_ylabel(r'Energy per Particle $E/A$')
         # kf_ticks = ax.get_xticks()
         # d_ticks = self.compute_momentum(kf_ticks)
@@ -1320,7 +1628,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         # ax2 = ax.twiny()
         # ax2.plot(d_ticks, np.average(y_min) * np.ones_like(d_ticks), ls='')
         # ax2.set_xticks(d_ticks)
-        self.plot_empirical_saturation(ax=ax, kf_scale=True)
+        # is_density_primary = True
+        self.plot_empirical_saturation(ax=ax, is_density_primary=is_density_primary)
         if savefig:
             pass
         return ax, ellipse
@@ -1335,9 +1644,10 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         ellipses = []
         ellipses_labels = []
         for order in orders:
-            idx = self.order_index(order)
+            # idx = self.order_index(order)
+            idx = np.squeeze(np.argwhere(self.orders_original == order))
             _, ellipse = self.plot_saturation(
-                breakdown=breakdown, order=order, ax=ax, savefig=False, color=self.colors[idx],
+                breakdown=breakdown, order=order, ax=ax, savefig=False, color=self.colors_original[idx],
                 nugget=nugget, X=X, cond=cond, n_samples=n_samples, **kwargs)
             ellipses.append(ellipse)
             ellipses_labels.append(rf'$2\sigma(y_{{{order}}}+\delta y_{{{order}}})$')
@@ -1348,7 +1658,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         labels = labels + ellipses_labels
         ax.legend(handles, labels)
         fig = plt.gcf()
-        fig.tight_layout()
+        # fig.tight_layout()
         if savefig:
             ords = [f'-{order}' for order in orders]
             ords = ''.join(ords)
