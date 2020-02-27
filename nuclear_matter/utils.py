@@ -53,8 +53,8 @@ class InputData:
         self.Kf_n = kf_n[:, None]
         self.Kf_s = kf_s[:, None]
 
-        self.ref_n_3bf_vals = 16 * kf_n ** 3
-        self.ref_s_3bf_vals = 16 * kf_s ** 3
+        self.ref_n_3bf = 16 * kf_n ** 3
+        self.ref_s_3bf = 16 * kf_s ** 3
 
         self.kf_s_dense = np.linspace(kf_s.min(), kf_s.max(), 100)
         self.Kf_s_dense = self.kf_s_dense[:, None]
@@ -70,6 +70,14 @@ class InputData:
             self.Kf_avg_dense = self.kf_avg_dense[:, None]
 
             self.ref_avg_3bf = 16 * kf_avg ** 3
+        else:
+            self.kf_avg = None
+            self.Kf_avg = None
+            self.kf_n_dense = None
+            self.Kf_n_dense = None
+            self.kf_avg_dense = None
+            self.Kf_avg_dense = None
+            self.ref_avg_3bf = None
 
         # ref_n_3bf = 8 * kf_n**6
         # ref_s_3bf = 8 * kf_s**6
@@ -86,6 +94,8 @@ class InputData:
         ]).T
         if not high_density:
             self.y_d_2bf = y_n_2bf - y_s_2bf
+        else:
+            self.y_d_2bf = None
 
         self.y_n_2_plus_3bf = y_n_2_plus_3bf = np.array([
             df_n_2_plus_3bf[df_n_2_plus_3bf['OrderEFT'] == order]['MBPT_4'].values
@@ -101,3 +111,8 @@ class InputData:
             self.y_n_3bf = y_n_2_plus_3bf - y_n_2bf
             self.y_s_3bf = y_s_2_plus_3bf - y_s_2bf
             self.y_d_3bf = self.y_d_2_plus_3bf - self.y_d_2bf
+        else:
+            self.y_d_2_plus_3bf = None
+            self.y_n_3bf = None
+            self.y_s_3bf = None
+            self.y_d_3bf = None
