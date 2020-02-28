@@ -1174,6 +1174,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             model = gm.ConjugateGaussianProcess(**self.kwargs)
             model.fit(self.X_train, coeffs_not_excluded[train])
             print(model.kernel_)
+            print('cbar mean:', np.sqrt(model.cbar_sq_mean_))
             if show_excluded:
                 model_all = gm.ConjugateGaussianProcess(**self.kwargs)
                 coeffs_all = self.compute_coefficients(breakdown=breakdown, show_excluded=True)
