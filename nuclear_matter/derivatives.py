@@ -1,6 +1,7 @@
 import gptools
 import numpy as np
 from sympy import symbols, diff, lambdify
+from findiff import FinDiff
 
 
 class CustomKernel(gptools.Kernel):
@@ -222,7 +223,7 @@ class ObservableContainer:
 
     def __init__(
             self, density, kf, y, orders, density_interp, kf_interp,
-            std, ls, breakdown, err_y=None, derivs=(0, 1, 2), include_3bf=True
+            std, ls, breakdown, err_y=0, derivs=(0, 1, 2), include_3bf=True
     ):
 
         self.density = density
@@ -233,6 +234,7 @@ class ObservableContainer:
         self.kf_interp = kf_interp
         self.Kf_interp = Kf_interp = kf_interp[:, None]
 
+        self.y = y
         self.N_interp = N_interp = len(kf_interp)
         self.err_y = err_y
         self.derivs = derivs
@@ -245,6 +247,17 @@ class ObservableContainer:
         self._y_interp_vecs = {}
         self._std_interp_vecs = {}
         self._cov_interp_blocks = {}
+
+        self._dy_dn = {}
+        self._d2y_dn2 = {}
+        self._dy_dk = {}
+        self._d2y_dk2 = {}
+        self._y_dict = {}
+
+        d_dn = FinDiff(0, density, 1)
+        d2_dn2 = FinDiff(0, density, 2, acc=2)
+        d_dk = FinDiff(0, kf, 1)
+        d2_dk2 = FinDiff(0, kf, 2, acc=2)
 
         self._cov_total_all_derivs = {}
         self._cov_total_blocks = {}
@@ -274,6 +287,15 @@ class ObservableContainer:
             gp_interp = gptools.GaussianProcess(kern_interp)
             gp_interp.add_data(Kf, y[:, i], err_y=err_y_i)
             self.gps_interp[n] = gp_interp
+
+            # Finite difference:
+            self._dy_dn[n] = d_dn(y[:, i])
+            self._d2y_dn2[n] = d2_dn2(y[:, i])
+            self._dy_dk[n] = d_dk(y[:, i])
+            self._d2y_dk2[n] = d2_dk2(y[:, i])
+            self._y_dict[n] = y[:, i]
+
+            # Back to GPs:
 
             y_interp_all_derivs_n, cov_interp_all_derivs_n = predict_with_derivatives(
                 gp=gp_interp, X=Kf_interp, n=derivs, return_cov=True
@@ -366,3 +388,20 @@ class ObservableContainer:
                 self.gps_trunc[order], X=Kf, n=derivs, only_cov=True
             )
         return y_interp, cov
+
+    def finite_difference(self, order, deriv=1, wrt_kf=True):
+        y = self._y_dict
+        if wrt_kf:
+            dy_dx = self._dy_dk
+            d2y_dx2 = self._d2y_dk2
+        else:
+            dy_dx = self._dy_dn
+            d2y_dx2 = self._d2y_dn2
+        if deriv == 0:
+            return y[order]
+        if deriv == 1:
+            return dy_dx[order]
+        elif deriv == 2:
+            return d2y_dx2[order]
+        else:
+            raise ValueError('deriv must be 0, 1 or 2')
