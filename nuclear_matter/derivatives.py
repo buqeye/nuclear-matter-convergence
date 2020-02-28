@@ -50,13 +50,14 @@ class CustomKernel(gptools.Kernel):
 #         ])
 
 
-def kernel_scale_sympy(lowest_order=4, highest_order=None):
+def kernel_scale_sympy(lowest_order=4, highest_order=None, include_3bf=False):
     """Creates a sympy object that is the convergence part of the GP kernel
 
     Parameters
     ----------
     lowest_order
     highest_order
+    include_3bf
     """
     k_f1, k_f2, y_ref, Lambda_b, = symbols('k_f1 k_f2 y_ref Lambda_b')
     hbar_c = 197.3269718  # MeV fm
@@ -66,10 +67,22 @@ def kernel_scale_sympy(lowest_order=4, highest_order=None):
     if highest_order is not None:
         num = num - (Q1 * Q2) ** (highest_order + 1)
     kernel_scale = y_ref ** 2 * num / (1 - Q1 * Q2)
+
+    if include_3bf and (highest_order is None or highest_order >= 3):
+        lowest_order_3bf = lowest_order if lowest_order >= 3 else 3
+        num_3bf = (Q1 * Q2) ** lowest_order_3bf
+        if highest_order is not None:
+            num_3bf = num_3bf - (Q1 * Q2) ** (highest_order + 1)
+
+        # kf_3bf_order = 3
+        kf_3bf_order = 1  # Actually, linear doesn't look so bad
+        kernel_scale += (k_f1 * k_f2)**kf_3bf_order * y_ref ** 2 * num_3bf / (1 - Q1 * Q2)
+
     return k_f1, k_f2, Lambda_b, y_ref, kernel_scale
 
 
-def eval_kernel_scale(Xi, Xj=None, ni=None, nj=None, breakdown=600, ref=16, lowest_order=4, highest_order=None):
+def eval_kernel_scale(Xi, Xj=None, ni=None, nj=None, breakdown=600, ref=16, lowest_order=4,
+                      highest_order=None, include_3bf=False):
     """Creates a matrix for the convergence part of the GP kernel.
     Compatible with the CustomKernel class signature.
 
@@ -83,13 +96,14 @@ def eval_kernel_scale(Xi, Xj=None, ni=None, nj=None, breakdown=600, ref=16, lowe
     ref
     lowest_order
     highest_order
+    include_3bf
     """
     if ni is None:
         ni = 0
     if nj is None:
         nj = 0
     k_f1, k_f2, Lambda_b, y_ref, kernel_scale = kernel_scale_sympy(
-        lowest_order=lowest_order, highest_order=highest_order
+        lowest_order=lowest_order, highest_order=highest_order, include_3bf=include_3bf
     )
     expr = diff(kernel_scale, k_f1, ni, k_f2, nj)
     f = lambdify((k_f1, k_f2, Lambda_b, y_ref), expr, "numpy")
@@ -102,7 +116,7 @@ def eval_kernel_scale(Xi, Xj=None, ni=None, nj=None, breakdown=600, ref=16, lowe
 
 class ConvergenceKernel:
 
-    def __init__(self, breakdown=600, ref=16, lowest_order=4, highest_order=None):
+    def __init__(self, breakdown=600, ref=16, lowest_order=4, highest_order=None, include_3bf=False):
 
         # TODO: Fix the reference scale for 3bf
         self.breakdown = breakdown
@@ -111,40 +125,43 @@ class ConvergenceKernel:
         self.highest_order = highest_order
 
         k_f1, k_f2, Lambda_b, y_ref, kernel_scale = kernel_scale_sympy(
-            lowest_order=lowest_order, highest_order=highest_order
+            lowest_order=lowest_order, highest_order=highest_order, include_3bf=include_3bf
         )
         self.k_f1 = k_f1
         self.k_f2 = k_f2
         self.Lambda_b = Lambda_b
         self.y_ref = y_ref
         self.kernel_scale = kernel_scale
+        self._funcs = {}
 
         self.ni_symbol, self.nj_symbol = symbols('n_i, n_j')
+
+    def compute_func(self, ni, nj):
+        if (ni, nj) in self._funcs:
+            return self._funcs[ni, nj]
+        else:
+            k_f1 = self.k_f1
+            k_f2 = self.k_f2
+            Lambda_b = self.Lambda_b
+            y_ref = self.y_ref
+            kernel_scale = self.kernel_scale
+
+            expr = diff(kernel_scale, k_f1, ni, k_f2, nj)
+            f = lambdify((k_f1, k_f2, Lambda_b, y_ref), expr, "numpy")
+            self._funcs[ni, nj] = f
+            return f
 
     def __call__(self, Xi, Xj=None, ni=None, nj=None):
         if ni is None:
             ni = 0
         if nj is None:
             nj = 0
-        #         k_f1, k_f2, Lambda_b, y_ref, kernel_scale = kernel_scale_sympy(
-        #             lowest_order=lowest_order, highest_order=highest_order
-        #         )
-        k_f1 = self.k_f1
-        k_f2 = self.k_f2
-        Lambda_b = self.Lambda_b
-        y_ref = self.y_ref
-        kernel_scale = self.kernel_scale
-        ni_symbol = self.ni_symbol
-        nj_symbol = self.nj_symbol
-
-        expr = diff(kernel_scale, k_f1, ni, k_f2, nj)
-        #         expr = diff(kernel_scale, (k_f1, ni_symbol), (k_f2, nj_symbol))
-        f = lambdify((k_f1, k_f2, Lambda_b, y_ref), expr, "numpy")
         if Xj is None:
             Xj = Xi
 
         breakdown = self.breakdown
         ref = self.ref
+        f = self.compute_func(ni, nj)
         K = f(Xi, Xj, breakdown, ref)
         #         K = f(Xi, Xj, breakdown, ref, ni, nj)
         try:
@@ -205,7 +222,7 @@ class ObservableContainer:
 
     def __init__(
             self, density, kf, y, orders, density_interp, kf_interp,
-            std, ls, err_y=None, derivs=(0, 1, 2)
+            std, ls, breakdown, err_y=None, derivs=(0, 1, 2), include_3bf=True
     ):
 
         self.density = density
@@ -239,8 +256,14 @@ class ObservableContainer:
             first_omitted = n + 1
             if first_omitted == 1:
                 first_omitted += 1  # the Q^1 contribution is zero, so bump to Q^2
-            kern_interp = CustomKernel(ConvergenceKernel(lowest_order=0, highest_order=n)) * self.coeff_kernel
-            kern_trunc = CustomKernel(ConvergenceKernel(lowest_order=first_omitted)) * self.coeff_kernel
+            _kern_lower = CustomKernel(ConvergenceKernel(
+                breakdown=breakdown, lowest_order=0, highest_order=n, include_3bf=include_3bf
+            ))
+            kern_interp = _kern_lower * self.coeff_kernel
+            _kern_upper = CustomKernel(ConvergenceKernel(
+                breakdown=breakdown, lowest_order=first_omitted, include_3bf=include_3bf
+            ))
+            kern_trunc = _kern_upper * self.coeff_kernel
 
             try:
                 err_y_i = err_y[i]
