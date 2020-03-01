@@ -2,6 +2,7 @@ import gptools
 import numpy as np
 from sympy import symbols, diff, lambdify
 from findiff import FinDiff
+from scipy import stats
 
 
 class CustomKernel(gptools.Kernel):
@@ -219,11 +220,60 @@ def get_std_map(cov_map):
     return d
 
 
+def compute_mean_cov_blm(X, y, Sigma_y=0, mean0=0, cov0=0):
+    R"""
+
+    Parameters
+    ----------
+    X : array-like, shape = (N, n_params)
+        The feature matrix
+    y : array-like, shape = (N,)
+        The data
+    Sigma_y : int or array-like, shape = (N, N)
+        The data covariance
+    mean0 : int or array-like, shape = (n_params, n_params)
+        The prior mean on the polynomial coefficients
+    cov0 : int or array-like, shape = (n_params, n_params)
+        The prior covariance on the polynomial coefficients. If zero, the prior is uninformative
+
+    Returns
+    -------
+    mean : array-like
+    cov : array-like
+    """
+    ones_y = np.ones(y.shape[0], dtype=float)
+    ones_n_params = np.ones(X.shape[-1], dtype=float)
+    Sigma_y = Sigma_y * ones_y
+    mean0 = mean0 * ones_n_params
+    if Sigma_y.ndim == 1:
+        Sigma_y = np.diag(Sigma_y)
+
+    if cov0 == 0:
+        prec0 = 0 * np.diag(ones_n_params)
+    else:
+        cov0 = cov0 * ones_n_params
+        if cov0.ndim == 1:
+            cov0 = np.diag(cov0)
+        prec0 = np.linalg.inv(cov0)
+
+    cov = np.linalg.inv(prec0 + X.T @ np.linalg.solve(Sigma_y, X))
+    mean = cov @ (prec0 @ mean0 + X.T @ np.linalg.solve(Sigma_y, y))
+    return mean, cov
+
+
+def compute_log_evidence_blm(X, y, Sigma_y, mean0=0, cov0=0):
+    mean, cov = compute_mean_cov_blm(X, y, Sigma_y, mean0, cov0)
+    mean_y = X @ mean
+    cov_y = X @ cov @ X.T + Sigma_y
+    y_dist = stats.multivariate_normal(mean=mean_y, cov=cov_y, allow_singular=True)
+    return y_dist.logpdf(y)
+
+
 class ObservableContainer:
 
     def __init__(
             self, density, kf, y, orders, density_interp, kf_interp,
-            std, ls, breakdown, err_y=0, derivs=(0, 1, 2), include_3bf=True
+            std, ls, breakdown, err_y=0, derivs=(0, 1, 2), include_3bf=True, verbose=False
     ):
 
         self.density = density
@@ -236,7 +286,9 @@ class ObservableContainer:
 
         self.y = y
         self.N_interp = N_interp = len(kf_interp)
+        err_y = np.broadcast_to(err_y, y.shape[0])  # Turn to vector if not already
         self.err_y = err_y
+        self.Sigma_y = np.diag(err_y**2)  # Make a diagonal covariance matrix
         self.derivs = derivs
 
         self.gps_interp = {}
@@ -263,6 +315,12 @@ class ObservableContainer:
         self._cov_total_blocks = {}
         self._std_total_vecs = {}
 
+        # The priors on the interpolator parameters
+        self.mean0 = 0
+        self.cov0 = 0
+        self._best_max_orders = {}
+        self._start_poly_order = 2
+
         self.coeff_kernel = gptools.SquaredExponentialKernel(
             initial_params=[std, ls], fixed_params=[True, True])
         for i, n in enumerate(orders):
@@ -278,22 +336,31 @@ class ObservableContainer:
             ))
             kern_trunc = _kern_upper * self.coeff_kernel
 
-            try:
-                err_y_i = err_y[i]
-            except TypeError:
-                err_y_i = err_y
+            # try:
+            #     err_y_i = err_y[i]
+            # except TypeError:
+            #     err_y_i = err_y
+
+            y_n = y[:, i]
+            self._y_dict[n] = y_n
 
             # Interpolating processes
             gp_interp = gptools.GaussianProcess(kern_interp)
-            gp_interp.add_data(Kf, y[:, i], err_y=err_y_i)
+            gp_interp.add_data(Kf, y_n, err_y=err_y)
             self.gps_interp[n] = gp_interp
 
             # Finite difference:
-            self._dy_dn[n] = d_dn(y[:, i])
-            self._d2y_dn2[n] = d2_dn2(y[:, i])
-            self._dy_dk[n] = d_dk(y[:, i])
-            self._d2y_dk2[n] = d2_dk2(y[:, i])
-            self._y_dict[n] = y[:, i]
+            self._dy_dn[n] = d_dn(y_n)
+            self._d2y_dn2[n] = d2_dn2(y_n)
+            self._dy_dk[n] = d_dk(y_n)
+            self._d2y_dk2[n] = d2_dk2(y_n)
+
+            # Fractional interpolator polynomials
+            self._best_max_orders[n] = self.compute_best_interpolator(
+                density, y=y_n, start_order=self._start_poly_order, max_order=10
+            )
+            if verbose:
+                print(f'For EFT order {n}, the best polynomial has max nu = {self._best_max_orders[n]}')
 
             # Back to GPs:
 
@@ -405,3 +472,51 @@ class ObservableContainer:
             return d2y_dx2[order]
         else:
             raise ValueError('deriv must be 0, 1 or 2')
+
+    def poly_interp(self, order, deriv=0, density=None, wrt_kf=False):
+        if density is None:
+            density = self.density
+        if wrt_kf:
+            raise NotImplementedError('wrt_kf = True is not ready')
+        poly_order = self._best_max_orders[order]
+        X = self.compute_feature_matrix_fractional_interpolator(
+            density, start_order=self._start_poly_order, end_order=poly_order, deriv=0
+        )
+        mean, _ = compute_mean_cov_blm(
+            X, y=self._y_dict[order], Sigma_y=self.Sigma_y, mean0=self.mean0, cov0=self.cov0
+        )
+        X_deriv = self.compute_feature_matrix_fractional_interpolator(
+            density, start_order=self._start_poly_order, end_order=poly_order, deriv=deriv
+        )
+        return X_deriv @ mean
+
+    @staticmethod
+    def compute_feature_matrix_fractional_interpolator(density, start_order=2, end_order=10, deriv=0):
+        n = density
+        n0 = 0.16
+        fit_orders = np.arange(start_order, end_order+1)
+        X = []
+        for nu in fit_orders:
+            factor = 1
+            exponent = nu / 3
+            if deriv > 0:
+                for _ in range(deriv):
+                    factor *= exponent / n0
+                    exponent -= 1
+            X.append(factor * (n / n0) ** exponent)
+        return np.asarray(X).T
+        # return np.asarray([(n / n0) ** (nu / 3) for nu in fit_orders]).T
+
+    def compute_best_interpolator(self, density, y, start_order=2, max_order=10):
+        fit_orders = np.arange(start_order, max_order+1)
+        log_evidences = []
+        for i, nu in enumerate(fit_orders):
+            X_i = self.compute_feature_matrix_fractional_interpolator(density, start_order, end_order=nu, deriv=0)
+            log_evidences.append(compute_log_evidence_blm(
+                X_i, y=y, Sigma_y=self.Sigma_y, mean0=self.mean0, cov0=self.cov0
+            ))
+        log_evidences = np.array(log_evidences)
+        log_evidences -= np.max(log_evidences)
+        evidences = np.exp(log_evidences)
+        return fit_orders[np.argmax(evidences)]
+
