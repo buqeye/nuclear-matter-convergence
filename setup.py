@@ -10,5 +10,8 @@ setup(
         'numpy',
         'scipy',
         'scikit-learn',
+        'gptools',
+        'findiff',
+        'sympy',
     ]
 )
