@@ -4,17 +4,26 @@ import pandas as pd
 
 class InputData:
 
-    def __init__(self, filename, Lambda, high_density=False):
+    def __init__(self, filename, Lambda):
 
         fits = {450: [1, 7], 500: [4, 10]}
 
         df = pd.read_csv(filename)
-        if not high_density:
-            # Convert differences to total prediction at each MBPT order
-            mbpt_orders = ['Kin', 'MBPT_HF', 'MBPT_2', 'MBPT_3', 'MBPT_4']
-            df[mbpt_orders] = df[mbpt_orders].apply(np.cumsum, axis=1)
-            # 'total' is now unnecessary. Remove it.
-            df.pop('total')
+        # if not high_density:
+        #     # Convert differences to total prediction at each MBPT order
+        #     mbpt_orders = ['Kin', 'MBPT_HF', 'MBPT_2', 'MBPT_3', 'MBPT_4']
+        #     df[mbpt_orders] = df[mbpt_orders].apply(np.cumsum, axis=1)
+        #     # 'total' is now unnecessary. Remove it.
+        #     df.pop('total')
+
+        pred_col = 'pred'
+        df[pred_col] = df['total']
+
+        # # Convert differences to total prediction at each MBPT order
+        # mbpt_orders = ['Kin', 'MBPT_HF', 'MBPT_2', 'MBPT_3', 'MBPT_4']
+        # df[mbpt_orders] = df[mbpt_orders].apply(np.cumsum, axis=1)
+        # # 'total' is now unnecessary. Remove it.
+        # df.pop('total')
 
         self.df = df
         self.ref_2bf = 16
@@ -59,7 +68,7 @@ class InputData:
         self.kf_s_dense = np.linspace(kf_s.min(), kf_s.max(), 100)
         self.Kf_s_dense = self.kf_s_dense[:, None]
 
-        if not high_density:
+        if True:
             self.kf_avg = kf_avg = (kf_n + kf_s) / 2.
             self.Kf_avg = kf_avg[:, None]
 
@@ -85,27 +94,27 @@ class InputData:
 
         # Extract each type of observable
         self.y_n_2bf = y_n_2bf = np.array([
-            df_n_2bf[df_n_2bf['OrderEFT'] == order]['MBPT_4'].values
+            df_n_2bf[df_n_2bf['OrderEFT'] == order][pred_col].values
             for order in df_n_2bf['OrderEFT'].unique()
         ]).T
         self.y_s_2bf = y_s_2bf = np.array([
-            df_s_2bf[df_s_2bf['OrderEFT'] == order]['MBPT_4'].values
+            df_s_2bf[df_s_2bf['OrderEFT'] == order][pred_col].values
             for order in df_s_2bf['OrderEFT'].unique()
         ]).T
-        if not high_density:
+        if True:
             self.y_d_2bf = y_n_2bf - y_s_2bf
         else:
             self.y_d_2bf = None
 
         self.y_n_2_plus_3bf = y_n_2_plus_3bf = np.array([
-            df_n_2_plus_3bf[df_n_2_plus_3bf['OrderEFT'] == order]['MBPT_4'].values
+            df_n_2_plus_3bf[df_n_2_plus_3bf['OrderEFT'] == order][pred_col].values
             for order in df_n_2_plus_3bf['OrderEFT'].unique()
         ]).T
         self.y_s_2_plus_3bf = y_s_2_plus_3bf = np.array([
-            df_s_2_plus_3bf[df_s_2_plus_3bf['OrderEFT'] == order]['MBPT_4'].values
+            df_s_2_plus_3bf[df_s_2_plus_3bf['OrderEFT'] == order][pred_col].values
             for order in df_s_2_plus_3bf['OrderEFT'].unique()
         ]).T
-        if not high_density:
+        if True:
             self.y_d_2_plus_3bf = y_n_2_plus_3bf - y_s_2_plus_3bf
 
             self.y_n_3bf = y_n_2_plus_3bf - y_n_2bf

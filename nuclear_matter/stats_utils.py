@@ -7,7 +7,9 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import Ellipse
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.legend import Legend
+from matplotlib.ticker import MultipleLocator, AutoMinorLocator
 import docrep
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel, Kernel
 import seaborn as sns
 from seaborn import utils
 import pandas as pd
@@ -256,7 +258,7 @@ def plot_2d_joint(ls_vals, Lb_vals, like_2d, like_ls, like_Lb, data_str=r'\vec{\
 
 def pdfplot(
         x, y, pdf, data, hue=None, order=None, hue_order=None, cut=1e-2, linewidth=None,
-        palette=None, saturation=1., ax=None, margin=None,
+        palette=None, saturation=1., ax=None, margin=None, legend_title=None,
 ):
     R"""Like seaborn's violinplot, but takes PDF values rather than tabular data.
 
@@ -367,7 +369,7 @@ def pdfplot(
         legend_elements = [
             Patch(facecolor=color, edgecolor=darkgray, label=leg_val) for color, leg_val in zip(colors, legend_vals)
         ]
-        ax.legend(handles=legend_elements, loc='best')
+        ax.legend(handles=legend_elements, loc='best', title=legend_title)
     return ax
 
 
@@ -494,6 +496,331 @@ def darken_color(color, amount=0.5):
     return lighten_color(color, 1./amount)
 
 
+def cov_no_centering(m, y=None, rowvar=True, bias=False, ddof=None, fweights=None,
+                     aweights=None):
+    """Copied from numpy.cov, but commented out the centering. Why isn't this toggleable with an argument?
+
+    Estimate a covariance matrix, given data and weights.
+    Covariance indicates the level to which two variables vary together.
+    If we examine N-dimensional samples, :math:`X = [x_1, x_2, ... x_N]^T`,
+    then the covariance matrix element :math:`C_{ij}` is the covariance of
+    :math:`x_i` and :math:`x_j`. The element :math:`C_{ii}` is the variance
+    of :math:`x_i`.
+    See the notes for an outline of the algorithm.
+    Parameters
+    ----------
+    m : array_like
+        A 1-D or 2-D array containing multiple variables and observations.
+        Each row of `m` represents a variable, and each column a single
+        observation of all those variables. Also see `rowvar` below.
+    y : array_like, optional
+        An additional set of variables and observations. `y` has the same form
+        as that of `m`.
+    rowvar : bool, optional
+        If `rowvar` is True (default), then each row represents a
+        variable, with observations in the columns. Otherwise, the relationship
+        is transposed: each column represents a variable, while the rows
+        contain observations.
+    bias : bool, optional
+        Default normalization (False) is by ``(N - 1)``, where ``N`` is the
+        number of observations given (unbiased estimate). If `bias` is True,
+        then normalization is by ``N``. These values can be overridden by using
+        the keyword ``ddof`` in numpy versions >= 1.5.
+    ddof : int, optional
+        If not ``None`` the default value implied by `bias` is overridden.
+        Note that ``ddof=1`` will return the unbiased estimate, even if both
+        `fweights` and `aweights` are specified, and ``ddof=0`` will return
+        the simple average. See the notes for the details. The default value
+        is ``None``.
+        .. versionadded:: 1.5
+    fweights : array_like, int, optional
+        1-D array of integer frequency weights; the number of times each
+        observation vector should be repeated.
+        .. versionadded:: 1.10
+    aweights : array_like, optional
+        1-D array of observation vector weights. These relative weights are
+        typically large for observations considered "important" and smaller for
+        observations considered less "important". If ``ddof=0`` the array of
+        weights can be used to assign probabilities to observation vectors.
+        .. versionadded:: 1.10
+    Returns
+    -------
+    out : ndarray
+        The covariance matrix of the variables.
+    See Also
+    --------
+    corrcoef : Normalized covariance matrix
+    Notes
+    -----
+    Assume that the observations are in the columns of the observation
+    array `m` and let ``f = fweights`` and ``a = aweights`` for brevity. The
+    steps to compute the weighted covariance are as follows::
+        >>> m = np.arange(10, dtype=np.float64)
+        >>> f = np.arange(10) * 2
+        >>> a = np.arange(10) ** 2.
+        >>> ddof = 9 # N - 1
+        >>> w = f * a
+        >>> v1 = np.sum(w)
+        >>> v2 = np.sum(w * a)
+        >>> m -= np.sum(m * w, axis=None, keepdims=True) / v1
+        >>> cov = np.dot(m * w, m.T) * v1 / (v1**2 - ddof * v2)
+    Note that when ``a == 1``, the normalization factor
+    ``v1 / (v1**2 - ddof * v2)`` goes over to ``1 / (np.sum(f) - ddof)``
+    as it should.
+    Examples
+    --------
+    Consider two variables, :math:`x_0` and :math:`x_1`, which
+    correlate perfectly, but in opposite directions:
+    >>> x = np.array([[0, 2], [1, 1], [2, 0]]).T
+    >>> x
+    array([[0, 1, 2],
+           [2, 1, 0]])
+    Note how :math:`x_0` increases while :math:`x_1` decreases. The covariance
+    matrix shows this clearly:
+    >>> np.cov(x)
+    array([[ 1., -1.],
+           [-1.,  1.]])
+    Note that element :math:`C_{0,1}`, which shows the correlation between
+    :math:`x_0` and :math:`x_1`, is negative.
+    Further, note how `x` and `y` are combined:
+    >>> x = [-2.1, -1,  4.3]
+    >>> y = [3,  1.1,  0.12]
+    >>> X = np.stack((x, y), axis=0)
+    >>> np.cov(X)
+    array([[11.71      , -4.286     ], # may vary
+           [-4.286     ,  2.144133]])
+    >>> np.cov(x, y)
+    array([[11.71      , -4.286     ], # may vary
+           [-4.286     ,  2.144133]])
+    >>> np.cov(x)
+    array(11.71)
+    """
+    from numpy import array, average, dot
+    import warnings
+    # Check inputs
+    if ddof is not None and ddof != int(ddof):
+        raise ValueError(
+            "ddof must be integer")
+
+    # Handles complex arrays too
+    m = np.asarray(m)
+    if m.ndim > 2:
+        raise ValueError("m has more than 2 dimensions")
+
+    if y is None:
+        dtype = np.result_type(m, np.float64)
+    else:
+        y = np.asarray(y)
+        if y.ndim > 2:
+            raise ValueError("y has more than 2 dimensions")
+        dtype = np.result_type(m, y, np.float64)
+
+    X = array(m, ndmin=2, dtype=dtype)
+    if not rowvar and X.shape[0] != 1:
+        X = X.T
+    if X.shape[0] == 0:
+        return np.array([]).reshape(0, 0)
+    if y is not None:
+        y = array(y, copy=False, ndmin=2, dtype=dtype)
+        if not rowvar and y.shape[0] != 1:
+            y = y.T
+        X = np.concatenate((X, y), axis=0)
+
+    if ddof is None:
+        if bias == 0:
+            ddof = 1
+        else:
+            ddof = 0
+
+    # Get the product of frequencies and weights
+    w = None
+    if fweights is not None:
+        fweights = np.asarray(fweights, dtype=float)
+        if not np.all(fweights == np.around(fweights)):
+            raise TypeError(
+                "fweights must be integer")
+        if fweights.ndim > 1:
+            raise RuntimeError(
+                "cannot handle multidimensional fweights")
+        if fweights.shape[0] != X.shape[1]:
+            raise RuntimeError(
+                "incompatible numbers of samples and fweights")
+        if any(fweights < 0):
+            raise ValueError(
+                "fweights cannot be negative")
+        w = fweights
+    if aweights is not None:
+        aweights = np.asarray(aweights, dtype=float)
+        if aweights.ndim > 1:
+            raise RuntimeError(
+                "cannot handle multidimensional aweights")
+        if aweights.shape[0] != X.shape[1]:
+            raise RuntimeError(
+                "incompatible numbers of samples and aweights")
+        if any(aweights < 0):
+            raise ValueError(
+                "aweights cannot be negative")
+        if w is None:
+            w = aweights
+        else:
+            w *= aweights
+
+    avg, w_sum = average(X, axis=1, weights=w, returned=True)
+    w_sum = w_sum[0]
+
+    # Determine the normalization
+    if w is None:
+        fact = X.shape[1] - ddof
+    elif ddof == 0:
+        fact = w_sum
+    elif aweights is None:
+        fact = w_sum - ddof
+    else:
+        fact = w_sum - ddof * sum(w * aweights) / w_sum
+
+    if fact <= 0:
+        warnings.warn("Degrees of freedom <= 0 for slice",
+                      RuntimeWarning, stacklevel=3)
+        fact = 0.0
+
+    #     X -= avg[:, None]
+    if w is None:
+        X_T = X.T
+    else:
+        X_T = (X * w).T
+    c = dot(X, X_T.conj())
+    c *= np.true_divide(1, fact)
+    return c.squeeze()
+
+
+def create_rbf_cross_covariance(X1, X2, std1, std2, ls1, ls2, rho=None):
+    if rho is None:
+        ls_off = np.sqrt((ls1 ** 2 + ls2 ** 2) / 2)
+        rho = np.sqrt(2 * ls1 * ls2 / (ls1**2 + ls2**2))
+    else:
+        ls_off = ls1
+    k_off = ConstantKernel(std1 * std2) * RBF(ls_off)
+    K_off = k_off(X1, X2)
+    K_off *= rho
+    return K_off
+
+
+def create_rbf_multi_covariance(X1, X2, std1, std2, ls1, ls2, nugget=0, rho=None):
+    k1 = ConstantKernel(std1 ** 2) * RBF(ls1)
+    if rho is None:
+        k2 = ConstantKernel(std2 ** 2) * RBF(ls2)
+    else:
+        k2 = ConstantKernel(std2 ** 2) * RBF(ls1)
+    K1 = k1(X1)
+    K2 = k2(X2)
+    K_off = create_rbf_cross_covariance(X1, X2, std1, std2, ls1, ls2, rho=rho)
+    K = np.block([
+        [K1, K_off],
+        [K_off.T, K2]
+    ])
+    K[np.diag_indices_from(K)] += nugget
+    return K
+
+
+def create_truncation_cross_covariance(X1, X2, std1, std2, ls1, ls2, ref1, ref2, Q1, Q2, kmin=0, kmax=None, rho=None):
+    K_off = create_rbf_cross_covariance(X1, X2, std1, std2, ls1, ls2, rho=rho)
+    ref1 = np.atleast_1d(ref1)
+    ref2 = np.atleast_1d(ref2)
+    Q_num1 = Q1 ** kmin
+    Q_num2 = Q2 ** kmin
+    if kmax is not None:
+        Q_num1 -= Q1 ** (kmax + 1)
+        Q_num2 -= Q2 ** (kmax + 1)
+    Q_sum1 = Q_num1 / np.sqrt(1 - Q1 ** 2)
+    Q_sum2 = Q_num2 / np.sqrt(1 - Q2 ** 2)
+    K_off = (ref1 * Q_sum1)[:, None] * (ref2 * Q_sum2) * K_off
+    return K_off
+
+
+def create_truncation_multi_covariance(
+        X1, X2, std1, std2, ls1, ls2, ref1, ref2, Q1, Q2, kmin=0, kmax=None, nugget=0, rho=None):
+    ref1 = np.atleast_1d(ref1)
+    ref2 = np.atleast_1d(ref2)
+    # Must square now, take square root after subtracting
+    Q_num1 = Q1 ** (2 * kmin)
+    Q_num2 = Q2 ** (2 * kmin)
+    if kmax is not None:
+        Q_num1 -= Q1 ** (2 * (kmax + 1))
+        Q_num2 -= Q2 ** (2 * (kmax + 1))
+    Q_sum1 = np.sqrt(Q_num1) / np.sqrt(1 - Q1 ** 2)
+    Q_sum2 = np.sqrt(Q_num2) / np.sqrt(1 - Q2 ** 2)
+
+    k1 = ConstantKernel(std1 ** 2) * RBF(ls1)
+    if rho is None:
+        k2 = ConstantKernel(std2 ** 2) * RBF(ls2)
+    else:
+        k2 = ConstantKernel(std2 ** 2) * RBF(ls1)
+    K1 = k1(X1)
+    K2 = k2(X2)
+    K1 = (ref1 * Q_sum1)[:, None] * (ref1 * Q_sum1) * K1
+    K2 = (ref2 * Q_sum2)[:, None] * (ref2 * Q_sum2) * K2
+    K_off = create_truncation_cross_covariance(
+        X1, X2, std1, std2, ls1, ls2, ref1, ref2, Q1, Q2, kmin, kmax, rho=rho
+    )
+    K = np.block([
+        [K1, K_off],
+        [K_off.T, K2]
+    ])
+    K[np.diag_indices_from(K)] += nugget
+    return K
+
+
+def create_sym_energy_rbf_covariance(density, std_n, std_s, ls_n, ls_s, nugget=0, rho=None):
+    Kf_n = fermi_momentum(density, 2)[:, None]
+    Kf_s = fermi_momentum(density, 4)[:, None]
+    # Convert symmetric matter kf and ell to neutron matter
+    # The scaling is irrelevant for the kernel as long as it is consistent, but we must ensure that
+    # points *at the same density* are the most correlated in the off-diagonal block.
+    # therefore the conventions must be consistent. Else points at high density will
+    # be less correlated than points at low density.
+    factor = 2. ** (1 / 3.)
+    Kf_s = Kf_s * factor
+    if rho is None:
+        ls_s = ls_s * factor
+    # print(Kf_n - Kf_s)
+    cov = create_rbf_multi_covariance(
+        X1=Kf_n, X2=Kf_s, std1=std_n, std2=std_s, ls1=ls_n, ls2=ls_s, nugget=nugget, rho=rho
+    )
+    N = len(density)
+    cov_n = cov[:N, :N]
+    cov_s = cov[N:, N:]
+    cov_ns = cov[:N, N:]
+    cov_sn = cov[N:, :N]
+    return cov_n + cov_s - cov_ns - cov_sn
+
+
+def create_sym_energy_truncation_covariance(
+        density, std_n, std_s, ls_n, ls_s, ref_n, ref_s, Q_n, Q_s, kmin=0, kmax=None, nugget=0, rho=None):
+    Kf_n = fermi_momentum(density, 2)[:, None]
+    Kf_s = fermi_momentum(density, 4)[:, None]
+    # Convert symmetric matter kf and ell to neutron matter
+    # The scaling is irrelevant for the kernel as long as it is consistent, but we must ensure that
+    # points *at the same density* are the most correlated in the off-diagonal block.
+    # therefore the conventions must be consistent. Else points at high density will
+    # be less correlated than points at low density.
+    factor = 2. ** (1/3.)
+    Kf_s = Kf_s * factor
+    if rho is None:
+        ls_s = ls_s * factor
+    # print(Kf_n - Kf_s)
+
+    cov = create_truncation_multi_covariance(
+        X1=Kf_n, X2=Kf_s, std1=std_n, std2=std_s, ls1=ls_n, ls2=ls_s,
+        ref1=ref_n, ref2=ref_s, Q1=Q_n, Q2=Q_s, kmin=kmin, kmax=kmax, nugget=nugget, rho=rho
+    )
+    N = len(density)
+    cov_n = cov[:N, :N]
+    cov_s = cov[N:, N:]
+    cov_ns = cov[:N, N:]
+    cov_sn = cov[N:, :N]
+    return cov_n + cov_s - cov_ns - cov_sn
+
+
 @docstrings.get_sectionsf('ConvergenceAnalysis')
 @docstrings.dedent
 class ConvergenceAnalysis:
@@ -533,6 +860,8 @@ class ConvergenceAnalysis:
         marker_list = ['^', 'X', 'o', 's']
         markerfillstyle_2bf = 'full'
         markerfillstyle_3bf = 'left'
+        linestyle_2bf = '-'
+        linestyle_3bf = '--'
         colors_original = colors
 
         if body == 'Appended':
@@ -542,16 +871,21 @@ class ConvergenceAnalysis:
             except TypeError:
                 ref3_vals = ref3
             try:
+                ref2_vals = ref2(X)
+            except TypeError:
+                ref2_vals = ref2
+            try:
                 ratio_vals = ratio(X)
             except TypeError:
                 ratio_vals = ratio
-            c2 = gm.coefficients(y2, ratio_vals, ref2, orders)
+            c2 = gm.coefficients(y2, ratio_vals, ref2_vals, orders)
             c3 = gm.coefficients(y3-y2, ratio_vals, ref3_vals, orders)
             c = []
             colors_all = []
             orders_all = []
             markers = []
             markerfillstyles = []
+            linestyles = []
             n_bodies = []
 
             for i, n in enumerate(orders):
@@ -560,6 +894,7 @@ class ConvergenceAnalysis:
                 colors_all.append(colors[i])
                 markers.append(marker_list[i])
                 markerfillstyles.append(markerfillstyle_2bf)
+                linestyles.append(linestyle_2bf)
                 n_bodies.append('2')
                 if n > 2:  # Has 3-body forces
                     c.append(c3[:, i])
@@ -567,11 +902,12 @@ class ConvergenceAnalysis:
                     colors_all.append(colors[i])
                     markers.append(marker_list[i])
                     markerfillstyles.append(markerfillstyle_3bf)
+                    linestyles.append(linestyle_3bf)
                     n_bodies.append('3')
             c = np.array(c).T
             orders_all = np.array(orders_all)
             print(f'Reseting orders to be {orders_all}')
-            y = gm.partials(c, ratio_vals, ref2, orders_all)
+            y = gm.partials(c, ratio_vals, ref2_vals, orders_all)
 
             self.y = y
             self.orders = orders_all
@@ -582,6 +918,7 @@ class ConvergenceAnalysis:
             self.ref = ref2
             colors_all = colors
             markerfillstyles = [markerfillstyle_2bf] * len(orders)
+            linestyles = [linestyle_2bf] * len(orders)
             n_bodies = ['2'] * len(orders)
             markers = marker_list
         elif body == 'NN+3N':
@@ -590,7 +927,9 @@ class ConvergenceAnalysis:
             self.ref = ref2
             colors_all = colors
             markerfillstyles = [markerfillstyle_2bf] * len(orders)
-            n_bodies = ['2+3'] * len(orders)
+            linestyles = [linestyle_2bf] * len(orders)
+            # n_bodies = ['2+3'] * len(orders)
+            n_bodies = [None] * len(orders)
             markers = marker_list
         elif body == '3N':
             self.y = y3 - y2
@@ -598,6 +937,7 @@ class ConvergenceAnalysis:
             self.ref = ref3
             colors_all = colors
             markerfillstyles = [markerfillstyle_3bf] * len(orders)
+            linestyles = [linestyle_3bf] * len(orders)
             n_bodies = ['3'] * len(orders)
             markers = marker_list
         else:
@@ -662,11 +1002,18 @@ class ConvergenceAnalysis:
         self.markerfillstyles = markerfillstyles = np.atleast_1d(markerfillstyles)
         self.markerfillstyles_not_excluded = markerfillstyles[excluded_mask]
 
+        self.linestyles = linestyles = np.atleast_1d(linestyles)
+        self.linestyles_not_excluded = linestyles[excluded_mask]
+
         self.kwargs = kwargs
 
     def compute_coefficients(self, show_excluded=False, **kwargs):
         ratio = self.ratio(self.X, **kwargs)
-        c = gm.coefficients(self.y, ratio, self.ref, self.orders)
+        try:
+            ref = self.ref(self.X)
+        except TypeError:
+            ref = self.ref
+        c = gm.coefficients(self.y, ratio, ref, self.orders)
         if not show_excluded:
             c = c[:, self.excluded_mask]
         return c
@@ -729,6 +1076,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
     MD_label = r'\mathrm{D}_{\mathrm{MD}}^2'
     PC_label = r'\mathrm{D}_{\mathrm{PC}}'
+    CI_label = r'\mathrm{D}_{\mathrm{CI}}'
 
     def __init__(self, X, y2, y3, orders, train, valid, ref2, ref3, ratio, density, *, system='neutron',
                  fit_n2lo=None, fit_n3lo=None, Lambda=None, body=None, savefigs=False,
@@ -774,6 +1122,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         if self.system == 'neutron':
             degeneracy = 2
         elif self.system == 'symmetric':
+            # print('warning: assuming neutron matter for testing')
+            # degeneracy = 2
             degeneracy = 4
         elif self.system == 'difference':
             raise ValueError('not sure what to do for symmetry energy')
@@ -785,6 +1135,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         if self.system == 'neutron':
             degeneracy = 2
         elif self.system == 'symmetric':
+            # print('warning: assuming neutron matter for testing')
+            # degeneracy = 2
             degeneracy = 4
         elif self.system == 'difference':
             raise ValueError('not sure what to do for symmetry energy')
@@ -905,7 +1257,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
     def ls_map(self):
         return self._ls_map
 
-    def compute_underlying_graphical_diagnostic(self, breakdown, show_excluded=False):
+    def compute_underlying_graphical_diagnostic(self, breakdown, show_excluded=False, interp=False, kernel=None):
         coeffs = coeffs_not_excluded = self.compute_coefficients(
             breakdown=breakdown, show_excluded=show_excluded
         )
@@ -918,13 +1270,26 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             markers = self.markers_not_excluded
             coeffs_not_excluded = self.compute_coefficients(breakdown=breakdown, show_excluded=False)
 
-        process = gm.ConjugateGaussianProcess(**self.kwargs)
+        gp_kwargs = self.kwargs.copy()
+        if kernel is not None:
+            gp_kwargs['kernel'] = kernel
+        process = gm.ConjugateGaussianProcess(**gp_kwargs)
         process.fit(self.X_train, coeffs_not_excluded[self.train])  # in either case, only fit to non-excluded coeffs
-        mean = process.mean(self.X_valid)
-        cov = process.cov(self.X_valid)
+        if interp:
+            mean, cov = process.predict(self.X_valid, return_cov=True, pred_noise=True)
+            # print(mean.shape, mean)
+            # print(cov)
+            data = coeffs[self.valid] - mean
+            mean = np.zeros(len(mean))
+        else:
+            mean = process.mean(self.X_valid)
+            cov = process.cov(self.X_valid)
+            data = coeffs[self.valid]
+        # print(mean.shape, mean)
+        # print(data)
         # But it may be useful to visualize the diagnostics off all coefficients
         graph = gm.GraphicalDiagnostic(
-            coeffs[self.valid], mean, cov, colors=colors, gray=gray, black=softblack,
+            data, mean, cov, colors=colors, gray=gray, black=softblack,
             markerfillstyles=markerfillstyles, markers=markers
         )
         return graph
@@ -998,6 +1363,22 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         print(model.coeffs_process.kernel_)
         # But then condition on `cond` X, y points to get a good interpolant
         pred, cov = model.predict(X, order=order, return_cov=True, Xc=self.X[cond], y=y[cond, ord], kind='both')
+
+        if self.body == 'Appended':
+            try:
+                ref3_vals = self.ref3(X)
+            except TypeError:
+                ref3_vals = self.ref3
+            try:
+                ref2_vals = self.ref2(X)
+            except TypeError:
+                ref2_vals = self.ref2
+            ref2_vals = np.atleast_1d(ref2_vals)
+            ref3_vals = np.atleast_1d(ref3_vals)
+            # For appended, the standard reference is the 2-body one. So swap for the 3-body ref
+            cov_3bf = cov * (ref3_vals[:, None] * ref3_vals) / (ref2_vals[:, None] * ref2_vals)
+            cov = cov + cov_3bf
+
         # pred, cov = model.predict(X, order=order, return_cov=True, kind='both')
         # pred += self.y[:, ord]
         # cov += np.diag(cov) * nugget * np.eye(cov.shape[0])
@@ -1047,16 +1428,19 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             full_name += f'_ls-{ls:.0f}'
         else:
             full_name += f'_ls-x'
-        full_name += f'_ref-{ref:.0f}'
+        try:
+            full_name += f'_ref-{ref:.0f}'
+        except TypeError:  # If it's a function
+            pass
         if max_idx is not None:
             full_name += f'_midx-{max_idx}'
         else:
             full_name += f'_midx-x'
 
-        center = self.kwargs.get('center', 0)
-        disp = self.kwargs.get('disp', 1)
-        df = self.kwargs.get('df', 1)
-        scale = self.kwargs.get('scale', 1)
+        center = str(self.kwargs.get('center', 0)).replace('.', 'p')
+        disp = str(self.kwargs.get('disp', 1)).replace('.', 'p')
+        df = str(self.kwargs.get('df', 1)).replace('.', 'p')
+        scale = str(self.kwargs.get('scale', 1)).replace('.', 'p')
         full_name += f'_hyp-{center}-{disp}-{df}-{scale}'
 
         full_name = join(self.fig_path, full_name)
@@ -1097,16 +1481,23 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         y_label += fr'${self.system_math_strings[self.system]}$'
         return y_label
 
-    def setup_ticks(self, ax, is_density_primary, train, valid, show_2nd_axis=True):
-        d_label = r'Density $n$ (fm$^{-3}$)'
-        kf_label = r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)'
+    def setup_ticks(self, ax, is_density_primary, train, valid, show_2nd_axis=True, show_train_valid=True):
+        d_label = r'Density $n$ [fm$^{-3}$]'
+        kf_label = r'Fermi Momentum $k_\mathrm{F}$ [fm$^{-1}$]'
         # ax.set_xticks(x_ticks)
         # ax2.set_xticks(x_ticks)
+        x_min, x_max = ax.get_xlim()
 
         if is_density_primary:
             x_label = d_label
             x = self.density
-            x_ticks = x[train]
+            if show_train_valid:
+                x_ticks = x[train]
+            else:
+                ax.xaxis.set_major_locator(MultipleLocator(0.1))
+                ax.xaxis.set_minor_locator(AutoMinorLocator(2))
+                x_ticks = ax.get_xticks()
+                x_ticks = x_ticks[(x_ticks >= x_min) & (x_ticks <= x_max)]
 
             if show_2nd_axis:
                 x_label2 = kf_label
@@ -1122,7 +1513,14 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         else:
             x_label = kf_label
             x = self.X.ravel()
-            x_ticks = x[train]
+            if show_train_valid:
+                x_ticks = x[train]
+            else:
+                ax.xaxis.set_major_locator(MultipleLocator(0.02))
+                ax.xaxis.set_minor_locator(AutoMinorLocator(2))
+                plt.draw()
+                x_ticks = ax.get_xticks()
+                x_ticks = x_ticks[(x_ticks >= x_min) & (x_ticks <= x_max)]
 
             if show_2nd_axis:
                 x_label2 = d_label
@@ -1139,8 +1537,12 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             # ax2.set_xticklabels(self.compute_density(x_ticks))
 
         ax.set_xlabel(x_label)
-        ax.set_xticks(x_ticks)
-        ax.set_xticks(x[valid], minor=True)
+        if show_train_valid:
+            ax.set_xticks(x_ticks)
+            x_ticks_minor = x[valid]
+            ax.set_xticks(x_ticks_minor, minor=True)
+        else:
+            x_ticks_minor = ax.get_xticks(minor=True)
         ax.tick_params(right=True)
 
         y_label = self.compute_y_label()
@@ -1148,17 +1550,27 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
         if show_2nd_axis:
             ax2 = ax.twiny()
+            ax2.margins(*ax.margins())  # Give them same margins, can't change ax.margins after this!
             # Plot invisible line to get ticks right
-            ax2.plot(x_ticks, ax.get_yticks().mean() * np.ones_like(x_ticks), ls='')
+            ax2.plot([x_min, x_max], ax.get_yticks().mean() * np.ones(2), ls='')
             ax2.set_xlabel(x_label2)
             ax2.set_xticks(x_ticks)
-            ax2.set_xticks(x[valid], minor=True)
+            ax2.set_xticks(x_ticks_minor, minor=True)
             ax2.set_xticklabels([f'{tick:0.2f}' for tick in x_ticks2])
             return ax, ax2
         return ax
 
+    def compute_std_and_kernel(self, breakdown=None):
+        if breakdown is None:
+            breakdown = self.breakdown_map[-1]
+            print('Using breakdown =', breakdown, 'MeV')
+        coeffs_not_excluded = self.compute_coefficients(breakdown=breakdown, show_excluded=False)
+        model = gm.ConjugateGaussianProcess(**self.kwargs)
+        model.fit(self.X_train, coeffs_not_excluded[self.train])
+        return np.sqrt(model.cbar_sq_mean_), model.kernel_
+
     def plot_coefficients(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False,
-                          show_excluded=False, show_2nd_axis=True):
+                          show_excluded=False, show_2nd_axis=True, kernel=None, show_train_valid=True):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
@@ -1171,12 +1583,15 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
         if show_process:
             coeffs_not_excluded = self.compute_coefficients(breakdown=breakdown, show_excluded=False)
-            model = gm.ConjugateGaussianProcess(**self.kwargs)
+            gp_kwargs = self.kwargs.copy()
+            if kernel is not None:
+                gp_kwargs['kernel'] = kernel
+            model = gm.ConjugateGaussianProcess(**gp_kwargs)
             model.fit(self.X_train, coeffs_not_excluded[train])
             print(model.kernel_)
             print('cbar mean:', np.sqrt(model.cbar_sq_mean_))
             if show_excluded:
-                model_all = gm.ConjugateGaussianProcess(**self.kwargs)
+                model_all = gm.ConjugateGaussianProcess(**gp_kwargs)
                 coeffs_all = self.compute_coefficients(breakdown=breakdown, show_excluded=True)
                 model_all.fit(self.X_train, coeffs_all[train])
                 pred, std = model_all.predict(self.X, return_std=True)
@@ -1184,7 +1599,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
                 pred, std = model.predict(self.X, return_std=True)
             mu = model.center_
             cbar = np.sqrt(model.cbar_sq_mean_)
-            ax.axhline(mu, 0, 1, c='k', zorder=0)
+            ax.axhline(mu, 0, 1, lw=1, c='k', zorder=0)
             ax.axhline(2*cbar, 0, 1, c=gray, zorder=0)
             ax.axhline(-2*cbar, 0, 1, c=gray, zorder=0)
 
@@ -1208,18 +1623,21 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
 
         for i, n in enumerate(orders):
             z = i / 20
+            label = fr'$c_{{{n}}}$'
+            if self.n_bodies[i] is not None:
+                label = fr'$c_{{{n}}}^{{({self.n_bodies[i]})}}$'
             ax.plot(
-                x, coeffs[:, i], c=colors[i], label=fr'$c_{{{n}}}^{{({self.n_bodies[i]})}}$', zorder=z,
+                x, coeffs[:, i], c=colors[i], label=label, zorder=z,
                 markevery=train, marker=markers[i], fillstyle=markerfillstyles[i])
             # ax.plot(x[train], coeffs[train, i], marker=markers[i], ls='', c=colors[i], zorder=z,
             #         fillstyle=markerfillstyles[i])
             if show_process:
-                ax.plot(x, pred[:, i], c=colors[i], zorder=z, ls='--')
+                # ax.plot(x, pred[:, i], c=colors[i], zorder=z, ls='--')
                 ax.fill_between(
                     x, pred[:, i] + 2*std, pred[:, i] - 2*std, zorder=z,
                     lw=0.5, alpha=1, facecolor=light_colors[i], edgecolor=colors[i]
                 )
-        ax.axhline(0, 0, 1, ls='--', c=gray, zorder=-1)
+        # ax.axhline(0, 0, 1, ls='--', c=gray, zorder=-1)
         # ax2 = ax.twiny()
         # ax2.plot(d, np.zeros_like(d), ls='', c=gray, zorder=-1)  # Dummy data to set up ticks
         # ax2.set_xlabel(r'Density $n$ (fm$^{-3}$)')
@@ -1233,7 +1651,14 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         else:
             ax.legend(ncol=2)
 
-        self.setup_ticks(ax, is_density_primary, train=train, valid=self.valid, show_2nd_axis=show_2nd_axis)
+        ax.margins(x=0)
+        self.setup_ticks(
+            ax, is_density_primary, train=train, valid=self.valid, show_2nd_axis=show_2nd_axis,
+            show_train_valid=show_train_valid
+        )
+
+        ylim = np.max(np.abs(ax.get_ylim()))
+        ax.set_ylim(-ylim, ylim)
 
         if savefig is None:
             savefig = self.savefigs
@@ -1252,14 +1677,21 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         return ax
 
     def plot_observables(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False,
-                         show_excluded=False, show_2nd_axis=True):
+                         show_excluded=False, show_2nd_axis=True, panels=False):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
 
         if ax is None:
-            fig, ax = plt.subplots(figsize=(3.4, 3.4))
-        ax.margins(x=0.)
+            if panels:
+                fig, axes = plt.subplots(2, 2, figsize=(3.4, 3.4), sharex=True, sharey=True)
+            else:
+                fig, ax = plt.subplots(figsize=(3.4, 3.4))
+                axes = np.atleast_2d(ax)
+        else:
+            axes = np.atleast_2d(ax)
+        for ax in axes.ravel():
+            ax.margins(x=0.)
         kf = self.X.ravel()
 
         is_density_primary = True
@@ -1286,44 +1718,63 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         else:
             raise ValueError('body not in allowed values')
 
+        # Loop through all orders and throw them out later if needed
         orders = self.orders_original
         colors = self.colors_original
-        if not show_excluded:
-            # coeffs = coeffs[:, self.excluded_mask]
-            colors = self.colors_original_not_excluded
-            orders = self.orders_original_not_excluded
+        # if not show_excluded:
+        #     # coeffs = coeffs[:, self.excluded_mask]
+        #     colors = self.colors_original_not_excluded
+        #     orders = self.orders_original_not_excluded
 
         light_colors = [lighten_color(c, 0.5) for c in colors]
 
-        for i, n in enumerate(orders):
-            z = i / 20
-            if n not in self.orders_not_excluded and not show_excluded:
-                # Don't plot orders if we've excluded them
-                continue
-            order_label = n if n in [0, 1] else n - 1
-            ax.plot(x, y[:, i], c=colors[i], label=fr'N$^{order_label}$LO', zorder=z)
-            # ax.plot(kf[train], self.y[train, i], marker='o', ls='', c=colors[i], zorder=z)
-            if show_process:
-                _, std = model.predict(self.X, order=n, return_std=True, kind='trunc')
-                if self.body == 'Appended':
-                    n_3bf = n if n >= 3 else 3  # 3-body forces don't enter until N3LO
-                    _, std_3bf = model.predict(self.X, order=n_3bf, return_std=True, kind='trunc')
-                    try:
-                        ref3_vals = self.ref3(self.X)
-                    except TypeError:
-                        ref3_vals = self.ref3
-                    try:
-                        ref2_vals = self.ref2(self.X)
-                    except TypeError:
-                        ref2_vals = self.ref2
-                    # For appended, the standard reference is the 2-body one. So swap for the 3-body ref
-                    std_3bf *= ref3_vals / ref2_vals
-                    std = np.sqrt(std**2 + std_3bf**2)
-                ax.plot(x, y[:, i], c=colors[i], zorder=z, ls='--')
-                ax.fill_between(
-                    x, y[:, i] + 2*std, y[:, i] - 2*std, zorder=z,
-                    lw=0.5, alpha=1, facecolor=light_colors[i], edgecolor=colors[i]
-                )
+        print(orders)
+        for j in range(4):
+            if panels:
+                cycle_orders = orders[:j+1]
+            else:
+                cycle_orders = orders
+            if j > 0 and not panels:
+                break
+
+            ax = axes.ravel()[j]
+            order_labels = []
+            for i, n in enumerate(cycle_orders):
+                z = i / 20
+                if n not in self.orders_not_excluded and not show_excluded:
+                    # Don't plot orders if we've excluded them
+                    continue
+                order_label = n if n in [0, 1] else n - 1
+                if order_label == 0:
+                    order_str = 'LO'
+                elif order_label == 1:
+                    order_str = 'NLO'
+                else:
+                    order_str = fr'N$^{order_label}$LO'
+                order_labels.append(order_str)
+                ax.plot(x, y[:, i], c=colors[i], label=order_str, zorder=z)
+                # ax.plot(kf[train], self.y[train, i], marker='o', ls='', c=colors[i], zorder=z)
+                if show_process:
+                    _, std = model.predict(self.X, order=n, return_std=True, kind='trunc')
+                    if self.body == 'Appended':
+                        n_3bf = n if n >= 3 else 3  # 3-body forces don't enter until N3LO
+                        _, std_3bf = model.predict(self.X, order=n_3bf, return_std=True, kind='trunc')
+                        try:
+                            ref3_vals = self.ref3(self.X)
+                        except TypeError:
+                            ref3_vals = self.ref3
+                        try:
+                            ref2_vals = self.ref2(self.X)
+                        except TypeError:
+                            ref2_vals = self.ref2
+                        # For appended, the standard reference is the 2-body one. So swap for the 3-body ref
+                        std_3bf *= ref3_vals / ref2_vals
+                        std = np.sqrt(std**2 + std_3bf**2)
+                    # ax.plot(x, y[:, i], c=colors[i], zorder=z, ls='--')
+                    ax.fill_between(
+                        x, y[:, i] + std, y[:, i] - std, zorder=z,
+                        lw=0.5, alpha=1, facecolor=light_colors[i], edgecolor=colors[i]
+                    )
 
         # ax2.plot(d, self.y[:, 0], ls='', c=gray, zorder=-1)  # Dummy data to set up ticks
         # ax.axhline(0, 0, 1, ls='--', c=gray, zorder=-1)
@@ -1342,10 +1793,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         # ax.set_ylabel(y_label)
         # ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
         # ax.set_xticks(self.X_valid.ravel(), minor=True)
-        ax.legend()
 
-        ax.margins(x=0.)
-        from matplotlib.ticker import MultipleLocator
         # if self.system == 'neutron':
         #     kf_ticks = np.array([1.2, 1.4, 1.6, 1.8])
         # elif self.system == 'symmetric':
@@ -1353,19 +1801,43 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         # else:
         #     kf_ticks = np.array([1., 1.2, 1.4])
         # ax.set_xticks(kf_ticks)
-        ax.xaxis.set_major_locator(MultipleLocator(0.2))
 
-        # ax2 = ax.twiny()
-        # ax2.margins(x=0.)
-        ax.set_xlim(x[0], x[-1])
+        for ax in axes.ravel():
+            ax.xaxis.set_major_locator(MultipleLocator(0.2))
 
-        axes = self.setup_ticks(
-            ax, is_density_primary, train=self.train, valid=self.valid, show_2nd_axis=show_2nd_axis)
-        if show_2nd_axis:
-            axes[-1].set_xlim(x[0], x[-1])
+            # ax2 = ax.twiny()
+            # ax2.margins(x=0.)
+            ax.set_xlim(x[0], x[-1])
 
-        if self.system == 'symmetric':
-            self.plot_empirical_saturation(ax, is_density_primary=is_density_primary)
+            if self.system == 'symmetric':
+                self.plot_empirical_saturation(ax, is_density_primary=is_density_primary)
+
+        if panels:
+            # both_axes = self.setup_ticks(
+            #     ax, is_density_primary, train=self.train, valid=self.valid, show_2nd_axis=False)
+            for ax in axes.ravel():
+                if is_density_primary:
+                    ax.xaxis.set_major_locator(MultipleLocator(0.1))
+                else:
+                    ax.xaxis.set_major_locator(MultipleLocator(0.2))
+                ax.xaxis.set_minor_locator(AutoMinorLocator(2))
+                ax.yaxis.set_minor_locator(AutoMinorLocator(2))
+                ax.tick_params(right=True, top=True, which='both')
+            d_label = r'Density $n$ [fm$^{-3}$]'
+            axes[1, 0].set_xlabel(d_label)
+            axes[1, 1].set_xlabel(d_label)
+
+            from .graphs import add_top_order_legend
+            fig = plt.gcf()
+            dark_colors = [darken_color(color) for color in colors]
+            add_top_order_legend(fig, axes[0, 0], axes[0, 1], order_labels, colors, light_colors, dark_colors)
+        else:
+            ax.legend()
+
+            both_axes = self.setup_ticks(
+                ax, is_density_primary, train=self.train, valid=self.valid, show_2nd_axis=show_2nd_axis)
+            if show_2nd_axis:
+                both_axes[-1].set_xlim(x[0], x[-1])
 
         if savefig is None:
             savefig = self.savefigs
@@ -1399,7 +1871,10 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
                 return fig, info
         return fig
 
-    def plot_md_squared(self, breakdown=None, ax=None, savefig=None, return_info=False):
+    def plot_md_squared(
+            self, breakdown=None, ax=None, savefig=None, return_info=False, interp=False, kernel=None,
+            show_excluded=False
+    ):
         R"""Plots the squared Mahalanobis distance.
 
         Parameters
@@ -1421,7 +1896,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
-        graph = self.compute_underlying_graphical_diagnostic(breakdown=breakdown)
+        graph = self.compute_underlying_graphical_diagnostic(
+            breakdown=breakdown, interp=interp, kernel=kernel, show_excluded=show_excluded)
         obs = self.system_math_string
         ax = graph.md_squared(type='box', trim=True, title=None, xlabel=rf'${self.MD_label}({obs})$', ax=ax)
 
@@ -1438,7 +1914,10 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
                 return ax, info
         return ax
 
-    def plot_pchol(self, breakdown=None, ax=None, savefig=None, return_info=False):
+    def plot_pchol(
+            self, breakdown=None, ax=None, savefig=None, return_info=False, interp=False, kernel=None,
+            show_excluded=False
+    ):
         R"""Plots the pivoted Cholesky diagnostic.
 
         Parameters
@@ -1460,12 +1939,21 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
-        graph = self.compute_underlying_graphical_diagnostic(breakdown=breakdown)
+        graph = self.compute_underlying_graphical_diagnostic(
+            breakdown=breakdown, interp=interp, kernel=kernel, show_excluded=show_excluded
+        )
         obs = self.system_math_string
         with plt.rc_context({"text.usetex": True, "text.latex.preview": True}):
             ax = graph.pivoted_cholesky_errors(ax=ax, title=None)
-            ax.text(0.04, 0.967, rf'${self.PC_label}({obs})$', bbox=text_bbox, transform=ax.transAxes, va='top',
-                    ha='left')
+            # ax = graph.individual_errors(ax=ax, title=None)
+            # ax.text(0.5, 0.95, rf'${self.PC_label}({obs})$', bbox=text_bbox, transform=ax.transAxes, va='top',
+            #         ha='center')
+            # Hijack a legend to get the 'best' location to place the text
+            line, = ax.plot([])
+            # Remove the handle from the legend box.
+            ax.legend(
+                [line], [rf'${self.PC_label}({obs})$'], handlelength=0,
+                loc='best', handletextpad=0)
             fig = plt.gcf()
 
             if savefig is None:
@@ -1481,7 +1969,9 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
                     return ax, info
         return ax
 
-    def plot_coeff_diagnostics(self, breakdown=None, fig=None, savefig=None, return_info=False):
+    def plot_coeff_diagnostics(
+            self, breakdown=None, fig=None, savefig=None, return_info=False,
+            interp=False, kernel=None, show_excluded=False):
         R"""Plots coefficients, the squared Mahalanobis distance, and the pivoted Cholesky diagnostic.
 
         Parameters
@@ -1509,9 +1999,17 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         ax_pc = fig.add_subplot(spec[:, 4:])
         show_2nd_axis = self.system != self.system_strings['difference']
         self.plot_coefficients(
-            breakdown=breakdown, ax=ax_cs, show_process=True, savefig=False, show_2nd_axis=show_2nd_axis)
-        self.plot_md_squared(breakdown=breakdown, ax=ax_md, savefig=False)
-        self.plot_pchol(breakdown=breakdown, ax=ax_pc, savefig=False)
+            breakdown=breakdown, ax=ax_cs, show_process=True, savefig=False, show_2nd_axis=show_2nd_axis,
+            kernel=kernel, show_excluded=show_excluded,
+        )
+        self.plot_md_squared(
+            breakdown=breakdown, ax=ax_md, savefig=False, interp=interp, kernel=kernel,
+            show_excluded=show_excluded,
+        )
+        self.plot_pchol(
+            breakdown=breakdown, ax=ax_pc, savefig=False, interp=interp, kernel=kernel,
+            show_excluded=show_excluded,
+        )
 
         if savefig is None:
             savefig = self.savefigs
@@ -1524,6 +2022,87 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
                 info = self.model_info(breakdown=breakdown)
                 info['name'] = path.relpath(name, self.fig_path)
                 return fig, info
+        return fig
+
+    def plot_credible_diagnostic(
+            self, breakdown=None, ax=None, savefig=None, truncation=False, show_excluded=False, all_points=False,
+            show_legend=True, ylabel=r'Empirical Coverage [$\%$]',
+    ):
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(3.2, 3.2))
+        if breakdown is None:
+            breakdown = self.breakdown_map[-1]
+            print('Using breakdown =', breakdown, 'MeV')
+
+        if truncation:
+            model = gm.TruncationGP(
+                ratio=self.ratio, ref=self.ref, excluded=self.excluded,
+                ratio_kws=dict(breakdown=breakdown), **self.kwargs
+            )
+            model.fit(self.X_train, y=self.y_train, orders=self.orders)
+
+            if all_points:
+                X = self.X
+                y = self.y
+            else:
+                X = self.X_valid
+                y = self.y_valid
+
+            if show_excluded:
+                orders = self.orders
+                colors = self.colors
+            else:
+                y = y[:, self.excluded_mask]
+                orders = self.orders_not_excluded
+                colors = self.colors_not_excluded
+
+            # Get the covariance without any Q junk
+            # norm_trunc_cov = model.cov(X, start=0, end=0)
+            ref = model.ref(X)
+            norm_trunc_cov = ref[:, None] * ref * model.coeffs_process.cov(X=X)
+            # Get the between-order residuals
+            residuals = np.diff(y)
+            Q = self.ratio(X)
+            # Normalize them based on the approximate size of the next order correction
+            # This is so that we can use the same Q-less covariance for each correction
+            norm_residuals = residuals / Q[:, None] ** orders[1:]
+            graph = gm.GraphicalDiagnostic(
+                norm_residuals, mean=np.zeros(X.shape[0]),
+                cov=norm_trunc_cov, colors=colors, gray=gray, black=softblack
+            )
+        else:
+            graph = self.compute_underlying_graphical_diagnostic(breakdown=breakdown, show_excluded=show_excluded)
+        obs = self.system_math_string
+        intervals = np.linspace(1e-5, 1, 100)
+        band_perc = [0.68, 0.95]
+        if show_excluded:
+            linestyles = self.linestyles
+        else:
+            linestyles = self.linestyles_not_excluded
+        ax = graph.credible_interval(
+            intervals=intervals, band_perc=band_perc,
+            # title=rf'${self.CI_label}({obs})$',
+            title=None,
+            ax=ax,
+            xlabel=r'Credible Interval [$\%$]', ylabel=ylabel,
+            linestyles=linestyles
+        )
+        ax.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+        ax.set_xticklabels([0, 20, 40, 60, 80, 100])
+        ax.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+        ax.set_yticklabels([0, 20, 40, 60, 80, 100])
+
+        if truncation and show_legend:
+            handles, labels = ax.get_legend_handles_labels()
+            ax.set_title('')
+            ax.legend(handles=handles, labels=[r'LO', r'NLO', r'N$^{2}$LO'], title=rf'${self.CI_label}({obs})$')
+
+        fig = plt.gcf()
+        if savefig is None:
+            savefig = self.savefigs
+        if savefig:
+            name = self.figure_name(f'ci_diag_trunc-{truncation}_', breakdown=breakdown)
+            fig.savefig(name)
         return fig
 
     def plot_empirical_saturation(self, ax=None, is_density_primary=True):
@@ -1546,7 +2125,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         return ax
 
     def plot_saturation(self, breakdown=None, order=4, ax=None, savefig=None, color=None, nugget=0, X=None,
-                        cond=None, n_samples=1000, **kwargs):
+                        cond=None, n_samples=1000, is_density_primary=True, **kwargs):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
@@ -1558,6 +2137,11 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             order=order, n_samples=n_samples, breakdown=breakdown, X=X, nugget=nugget, cond=cond
         )
 
+        if 'zorder' not in kwargs:
+            zorder = order / 10
+        else:
+            zorder = kwargs.copy().pop('zorder')
+
         if cond is None:
             cond = slice(None, None)
         # ord_idx = self.order_index(order)
@@ -1565,7 +2149,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         approx_xlim = x_min.min() - 0.03, x_min.max() + 0.03
         approx_xlim_mask = (self.X[cond].ravel() >= approx_xlim[0]) & (self.X[cond].ravel() <= approx_xlim[1])
 
-        is_density_primary = True
+        # is_density_primary = True
 
         if is_density_primary:
             x_min_no_trunc = self.compute_density(x_min_no_trunc)
@@ -1583,16 +2167,27 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         from matplotlib.collections import LineCollection
         # ax.fill_between(X.ravel(), pred+stdv, pred-stdv, color=color, zorder=0, alpha=0.5)
         # ax.plot(X.ravel(), pred, c=color)
-        col = LineCollection([
-            np.column_stack((x_all, pred)),
-            np.column_stack((x_all, pred+2*stdv)),
-            np.column_stack((x_all, pred-2*stdv))
-        ], colors=[color, color, color], linewidths=[1.2, 0.7, 0.7], linestyles=['-', '-', '-'])
-        ax.add_collection(col, autolim=False)
+
+        ax.fill_between(
+            x_all, pred+2*stdv, pred-2*stdv, facecolor=light_color,
+            edgecolor=color, alpha=0.3, zorder=zorder
+        )
+
+        print('Order', order)
+        print('x:', np.mean(x_min), '+/-', np.std(x_min))
+        print('y:', np.mean(y_min), '+/-', np.std(y_min))
+
         ellipse = confidence_ellipse(
             x_min, y_min, ax=ax, n_std=2, facecolor=light_color,
-            zorder=0, show_scatter=True, **kwargs
+            edgecolor=color, zorder=zorder, show_scatter=True, **kwargs
         )
+
+        col = LineCollection([
+            np.column_stack((x_all, pred)),
+            np.column_stack((x_all, pred + 2 * stdv)),
+            np.column_stack((x_all, pred - 2 * stdv))
+        ], colors=[color, color, color], linewidths=[1.2, 0.7, 0.7], linestyles=['-', '-', '-'], zorder=zorder + 1e-2)
+        ax.add_collection(col, autolim=False)
         # ax.plot(x_min_no_trunc, y_min_no_trunc, marker='x', ls='', markerfacecolor=color,
         #         markeredgecolor='k', markeredgewidth=0.5, label='True', zorder=10)
         ax.scatter(x_min_no_trunc, y_min_no_trunc, marker='X', facecolor=color,
@@ -1613,13 +2208,13 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             raise ValueError('body not in allowed values')
 
         if is_density_primary:
-            ax.plot(self.density[cond][approx_xlim_mask], y[cond, ord_idx][approx_xlim_mask],
-                    ls='', marker='o', c=color)
-            ax.set_xlabel(r'Density $n$ (fm$^{-3}$)')
+            # ax.plot(self.density[cond][approx_xlim_mask], y[cond, ord_idx][approx_xlim_mask],
+            #         ls='', marker='o', c=color, zorder=zorder)
+            ax.set_xlabel(r'Density $n$ [fm$^{-3}$]')
         else:
-            ax.plot(self.X[cond][approx_xlim_mask], y[cond, ord_idx][approx_xlim_mask],
-                    ls='', marker='o', c=color)
-            ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
+            # ax.plot(self.X[cond][approx_xlim_mask], y[cond, ord_idx][approx_xlim_mask],
+            #         ls='', marker='o', c=color, zorder=zorder)
+            ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ [fm$^{-1}$]')
         ax.set_ylabel(r'Energy per Particle $E/A$')
         # kf_ticks = ax.get_xticks()
         # d_ticks = self.compute_momentum(kf_ticks)
@@ -1635,10 +2230,14 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             pass
         return ax, ellipse
 
-    def plot_multi_saturation(self, breakdown=None, orders=[3, 4], ax=None, savefig=None,  nugget=0, X=None,
-                              cond=None, n_samples=1000, **kwargs):
+    def plot_multi_saturation(self, breakdown=None, orders=None, ax=None, savefig=None, nugget=0, X=None,
+                              cond=None, n_samples=1000, legend_kwargs=None, **kwargs):
+        if orders is None:
+            orders = [3, 4]
         if ax is None:
             ax = plt.gca()
+        if legend_kwargs is None:
+            legend_kwargs = dict()
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
@@ -1657,12 +2256,64 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         handles, labels = ax.get_legend_handles_labels()
         handles = handles + ellipses
         labels = labels + ellipses_labels
-        ax.legend(handles, labels)
+        ax.legend(handles, labels, **legend_kwargs)
         fig = plt.gcf()
         # fig.tight_layout()
         if savefig:
             ords = [f'-{order}' for order in orders]
             ords = ''.join(ords)
             name = self.figure_name(f'sat_ellipse_ords{ords}_', breakdown=breakdown)
+            print(name)
             fig.savefig(name)
         return ax
+
+
+class CorrKernel(Kernel):
+    R"""A basic kernel with rho on the off-diagonal blocks. Will assume that all 4 blocks are the same size.
+
+    The diagonal blocks are filled with ones, and the off-diagonal blocks are filled with rho.
+    """
+
+    def __init__(self, rho=0.5, rho_bounds=(1e-5, 1), std1=1, std2=1):
+        self.rho = rho
+        self.rho_bounds = rho_bounds
+        self.std1 = std1
+        self.std2 = std2
+
+    @property
+    def hyperparameter_rho(self):
+        from sklearn.gaussian_process.kernels import Hyperparameter
+        return Hyperparameter("rho", "numeric", self.rho_bounds)
+
+    def __call__(self, X, Y=None, eval_gradient=False):
+
+        nx = ny = len(X)
+        if Y is not None:
+            ny = len(Y)
+
+        ix = nx // 2
+        iy = ny // 2
+
+        stds_x = np.concatenate((self.std1 * np.ones(ix), self.std2 * np.ones(ix)))
+        stds_y = np.concatenate((self.std1 * np.ones(iy), self.std2 * np.ones(iy)))
+        K = np.ones((nx, ny), dtype=float)
+        K[ix:, :iy] = K[:ix, iy:] = self.rho
+
+        K *= stds_x[:, None] * stds_y
+
+        if eval_gradient:
+            dK = np.zeros((nx, ny, 1), dtype=float)
+            dK[ix:, :iy] = dK[:ix, iy:] = 1.
+            dK *= stds_x[:, None, None] * stds_y[None, :, None]
+            return K, dK
+        return K
+
+    def diag(self, X):
+        return np.ones(X.shape[0])
+
+    def is_stationary(self):
+        return False
+
+    def __repr__(self):
+        return "{0}(rho={1:.3g})".format(
+            self.__class__.__name__, self.rho)
