@@ -268,7 +268,8 @@ def plot_empirical_saturation(ax=None, facecolor='lightgray', edgecolor='gray', 
     n0 = 0.164
     n0_std = 0.007
     y0 = -15.86
-    y0_std = np.sqrt(0.37 ** 2 + 0.2 ** 2)
+    # y0_std = np.sqrt(0.37 ** 2 + 0.2 ** 2)
+    y0_std = 0.57  # They add the errors linearly
     left = n0 - n0_std
     right = n0 + n0_std
     rect = Rectangle(

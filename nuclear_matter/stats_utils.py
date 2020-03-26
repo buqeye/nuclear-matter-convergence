@@ -7,7 +7,7 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import Ellipse
 from matplotlib.legend_handler import HandlerPatch
 from matplotlib.legend import Legend
-from matplotlib.ticker import MultipleLocator, AutoMinorLocator
+from matplotlib.ticker import MultipleLocator, AutoMinorLocator, MaxNLocator
 import docrep
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel, Kernel
 import seaborn as sns
@@ -258,7 +258,7 @@ def plot_2d_joint(ls_vals, Lb_vals, like_2d, like_ls, like_Lb, data_str=r'\vec{\
 
 def pdfplot(
         x, y, pdf, data, hue=None, order=None, hue_order=None, cut=1e-2, linewidth=None,
-        palette=None, saturation=1., ax=None, margin=None, legend_title=None,
+        palette=None, saturation=1., ax=None, margin=None, legend_title=None, loc='best'
 ):
     R"""Like seaborn's violinplot, but takes PDF values rather than tabular data.
 
@@ -369,7 +369,7 @@ def pdfplot(
         legend_elements = [
             Patch(facecolor=color, edgecolor=darkgray, label=leg_val) for color, leg_val in zip(colors, legend_vals)
         ]
-        ax.legend(handles=legend_elements, loc='best', title=legend_title)
+        ax.legend(handles=legend_elements, loc=loc, title=legend_title)
     return ax
 
 
@@ -377,13 +377,13 @@ def joint2dplot(ls_df, breakdown_df, joint_df, system, order, data_str=None):
     ls_df = ls_df[(ls_df['system'] == system) & (ls_df['Order'] == order)]
     breakdown_df = breakdown_df[(breakdown_df['system'] == system) & (breakdown_df['Order'] == order)]
     joint_df = joint_df[(joint_df['system'] == system) & (joint_df['Order'] == order)]
-    ls = ls_df[r'$\ell$ (fm$^{-1}$)']
-    breakdown = breakdown_df[r'$\Lambda_b$ (MeV)']
+    ls = ls_df[r'$\ell$ [fm$^{-1}$]']
+    breakdown = breakdown_df[r'$\Lambda_b$ [MeV]']
     joint = joint_df['pdf'].values.reshape(len(ls), len(breakdown))
     fig = plot_2d_joint(
         ls_vals=ls, Lb_vals=breakdown, like_2d=joint,
         like_ls=ls_df['pdf'].values, like_Lb=breakdown_df['pdf'].values,
-        data_str=data_str, xlabel=r'$\ell$ (fm$^{-1}$)', ylabel=r'$\Lambda_b$ (MeV)',
+        data_str=data_str, xlabel=r'$\ell$ [fm$^{-1}$]', ylabel=r'$\Lambda_b$ [MeV]',
     )
     return fig
 
@@ -1203,7 +1203,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             joint_pdf, breakdown_pdf, ls_pdf = self.compute_breakdown_ls_posterior(
                 breakdown, ls, max_idx=idx, logprior=logprior)
 
-            df_breakdown = pd.DataFrame(np.array([breakdown, breakdown_pdf]).T, columns=[r'$\Lambda_b$ (MeV)', 'pdf'])
+            df_breakdown = pd.DataFrame(np.array([breakdown, breakdown_pdf]).T, columns=[r'$\Lambda_b$ [MeV]', 'pdf'])
             df_breakdown['Order'] = fr'N$^{idx_label}$LO'
             df_breakdown['Order Index'] = idx
             df_breakdown['system'] = fr'${self.system_math_string}$'
@@ -1211,7 +1211,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             dfs_breakdown.append(df_breakdown)
 
             if ls is not None:
-                df_ls = pd.DataFrame(np.array([ls, ls_pdf]).T, columns=[r'$\ell$ (fm$^{-1}$)', 'pdf'])
+                df_ls = pd.DataFrame(np.array([ls, ls_pdf]).T, columns=[r'$\ell$ [fm$^{-1}$]', 'pdf'])
                 df_ls['Order'] = fr'N$^{idx_label}$LO'
                 df_ls['Order Index'] = idx
                 df_ls['system'] = fr'${self.system_math_string}$'
@@ -1219,7 +1219,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
                 dfs_ls.append(df_ls)
 
             X = gm.cartesian(ls, breakdown)
-            df_joint = pd.DataFrame(X, columns=[r'$\ell$ (fm$^{-1}$)', r'$\Lambda_b$ (MeV)'])
+            df_joint = pd.DataFrame(X, columns=[r'$\ell$ [fm$^{-1}$]', r'$\Lambda_b$ [MeV]'])
             df_joint['pdf'] = joint_pdf.ravel()
             df_joint['Order'] = fr'N$^{idx_label}$LO'
             df_joint['Order Index'] = idx
@@ -1308,11 +1308,11 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
     def compute_best_length_scale_for_breakdown(self, breakdown, max_idx):
         ord = rf'N$^{max_idx}$LO'
         df_best = self.df_joint[
-            (self.df_joint[r'$\Lambda_b$ (MeV)'] == breakdown) &
+            (self.df_joint[r'$\Lambda_b$ [MeV]'] == breakdown) &
             (self.df_joint['Order'] == ord)
         ]
         ls_max_idx = df_best['pdf'].idxmax()
-        return df_best.loc[ls_max_idx][r'$\ell$ (fm$^{-1}$)']
+        return df_best.loc[ls_max_idx][r'$\ell$ [fm$^{-1}$]']
 
     def order_index(self, order):
         return np.squeeze(np.argwhere(self.orders == order))
@@ -1570,7 +1570,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         return np.sqrt(model.cbar_sq_mean_), model.kernel_
 
     def plot_coefficients(self, breakdown=None, ax=None, show_process=False, savefig=None, return_info=False,
-                          show_excluded=False, show_2nd_axis=True, kernel=None, show_train_valid=True):
+                          show_excluded=False, show_2nd_axis=True, kernel=None, show_train_valid=True, loc='best'):
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
@@ -1640,16 +1640,16 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         # ax.axhline(0, 0, 1, ls='--', c=gray, zorder=-1)
         # ax2 = ax.twiny()
         # ax2.plot(d, np.zeros_like(d), ls='', c=gray, zorder=-1)  # Dummy data to set up ticks
-        # ax2.set_xlabel(r'Density $n$ (fm$^{-3}$)')
+        # ax2.set_xlabel(r'Density $n$ [fm$^{-3}$]')
 
         # y_label = self.compute_y_label()
         # ax.set_ylabel(y_label)
-        # ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
+        # ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ [fm$^{-1}$]')
         # ax.set_xticks(self.X_valid.ravel(), minor=True)
         if len(orders) > 4:
-            ax.legend(ncol=3)
+            ax.legend(ncol=3, loc=loc)
         else:
-            ax.legend(ncol=2)
+            ax.legend(ncol=2, loc=loc)
 
         ax.margins(x=0)
         self.setup_ticks(
@@ -1791,7 +1791,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         # y_label += fr'${self.system_math_strings[self.system]}$'
         # y_label = self.compute_y_label()
         # ax.set_ylabel(y_label)
-        # ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ (fm$^{-1}$)')
+        # ax.set_xlabel(r'Fermi Momentum $k_\mathrm{F}$ [fm$^{-1}$]')
         # ax.set_xticks(self.X_valid.ravel(), minor=True)
 
         # if self.system == 'neutron':
@@ -1899,7 +1899,16 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         graph = self.compute_underlying_graphical_diagnostic(
             breakdown=breakdown, interp=interp, kernel=kernel, show_excluded=show_excluded)
         obs = self.system_math_string
-        ax = graph.md_squared(type='box', trim=True, title=None, xlabel=rf'${self.MD_label}({obs})$', ax=ax)
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.margins(y=0)
+        ax = graph.md_squared(type='box', trim=False, title=None, xlabel=rf'${self.MD_label}({obs})$', ax=ax)
+        ax.set_xticks([0])
+        ax.set_xticklabels(['0'], fontdict=dict(color='w'))
+        ax.tick_params(width=0, axis='x')
+        # plt.xticklabels()
+        ymin, ymax = ax.get_ylim()
+        ax.set_ylim(np.max([np.floor(ymin), 0]), np.ceil(ymax))
+
 
         if savefig is None:
             savefig = self.savefigs
@@ -1989,7 +1998,7 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
             The figure object
         """
         if fig is None:
-            fig = plt.figure(figsize=(8, 3.2), constrained_layout=True)
+            fig = plt.figure(figsize=(7, 3.2), constrained_layout=True)
         if breakdown is None:
             breakdown = self.breakdown_map[-1]
             print('Using breakdown =', breakdown, 'MeV')
@@ -2111,7 +2120,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         n0 = 0.164
         n0_std = 0.007
         y0 = -15.86
-        y0_std = np.sqrt(0.37 ** 2 + 0.2 ** 2)
+        # y0_std = np.sqrt(0.37 ** 2 + 0.2 ** 2)
+        y0_std = 0.57  # They add the errors linearly
         left = n0 - n0_std
         right = n0 + n0_std
         if not is_density_primary:
