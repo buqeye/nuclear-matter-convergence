@@ -39,8 +39,12 @@ With these prerequisites, to install this repository simply run:
 pip install .
 ```
 
-##
+## Symmetry Energy and its Slope Parameter
 
+BUQEYE's version of J. Lattimer's well-known `Sv--L plot`, Figure 2 of our [arXiv:XXX.XXX][shortPaper], can be produced using the Jupyter Notebook `analysis/Esym-L/correlation.ipynb`. In addition to
+a static `pdf` file, we support generating an animated `gif`, which shows the different empirical constraints incrementally. This is, in particular, useful for scientific talks and teaching.
+
+![Sm](analysis/Esym-L/incremental_plots/Lattimer_Esym_L_animated.gif)
 
 
 ## Contact
