@@ -2,7 +2,10 @@
 
 <img align="right" width="140" src="./logos/buqeye_logo_web.png">
 This repository contains the data and Jupyter notebooks to produce the figures
-in our publications [arXiv:XXX.XXX][shortPaper] and [arXiv:YYY.YYY][longPaper].
+in our publications:
+
+* [arXiv:XXX.XXX][shortPaper]   
+* [arXiv:YYY.YYY][longPaper]
 
 
 ## Overview
@@ -44,7 +47,7 @@ BUQEYE's version of J. Lattimer's well-known `Sv--L plot`, Figure 2 of our [arXi
 a static `pdf` file, we support the export of an animated `gif`, which shows the different empirical constraints incrementally. This is, in particular, useful for scientific talks and teaching.
 
 <p align="center">
-  <img width="400" src="analysis/Esym-L/incremental_plots/Lattimer_Esym_L_animated.gif">
+  <img width="380" src="analysis/Esym-L/incremental_plots/Lattimer_Esym_L_animated.gif">
 </p>
 
 
