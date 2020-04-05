@@ -1,7 +1,7 @@
 # Bayesian Uncertainty Quantification of the Infinite Nuclear Matter Equation of State
 
 This repository contains the data and Jupyter notebooks to produce the figures
-in our publications ([here][shortPaper] and [here][longPaper]). 
+in our publications [arXiv:XXX.XXX][shortPaper] and [arXiv:YYY.YYY][longPaper]).
 
 ![logo of the BUQEYE collaboration](./logos/buqeye_logo_web.png)
 
@@ -9,11 +9,10 @@ in our publications ([here][shortPaper] and [here][longPaper]).
 ## Overview
 
 This repository is organized as follows: The directory `analysis` contains
-all relevant the Jupyter notebooks:
+all the relevant Jupyter notebooks:
 * `3BF_convergence.ipynb`: (add brief description or just keywords)
 * `derivatives-bands.ipynb`: (add brief description or just keywords)
 * `saturation_analysis.ipynb`: (add brief description or just keywords)
-* `correlated_matter_analysis.ipynb`: (add brief description or just keywords)
 * `derivatives.ipynb`: (add brief description or just keywords)
 * `symmetry_energy_input_space.ipynb`: (add brief description or just keywords)
 * `correlated_matter_analysis_refactored.ipynb`: (add brief description or just keywords)
@@ -22,7 +21,7 @@ all relevant the Jupyter notebooks:
 
 The directories `nuclear_matter`and `other_figures`contain the raw Python
 implementation, helper functions, etc. and additional figures not shown in the
-papers (e.g., for talks), respectively. The data for the equation of state of
+papers (e.g., for talks), respectively. The raw data for the equation of state of
 neutron matter and symmetric nuclear matter can be found in `data` and
 `raw_data`.
 
