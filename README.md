@@ -1,7 +1,7 @@
 # Bayesian Uncertainty Quantification of the Infinite Nuclear Matter Equation of State
 
 This repository contains the data and Jupyter notebooks to produce the figures
-in our publications [arXiv:XXX.XXX][shortPaper] and [arXiv:YYY.YYY][longPaper]).
+in our publications [arXiv:XXX.XXX][shortPaper] and [arXiv:YYY.YYY][longPaper].
 
 ![logo of the BUQEYE collaboration](./logos/buqeye_logo_web.png)
 
@@ -38,6 +38,9 @@ With these prerequisites, to install this repository simply run:
 ```shell
 pip install .
 ```
+
+##
+
 
 
 ## Contact
