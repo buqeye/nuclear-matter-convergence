@@ -1,9 +1,8 @@
 # Bayesian Uncertainty Quantification of the Infinite Nuclear Matter Equation of State
 
+<img align="right" width="140" src="./logos/buqeye_logo_web.png">
 This repository contains the data and Jupyter notebooks to produce the figures
 in our publications [arXiv:XXX.XXX][shortPaper] and [arXiv:YYY.YYY][longPaper].
-
-![logo of the BUQEYE collaboration](./logos/buqeye_logo_web.png)
 
 
 ## Overview
