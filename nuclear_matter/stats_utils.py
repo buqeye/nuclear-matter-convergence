@@ -795,7 +795,9 @@ def create_sym_energy_rbf_covariance(density, std_n, std_s, ls_n, ls_s, nugget=0
 
 
 def create_sym_energy_truncation_covariance(
-        density, std_n, std_s, ls_n, ls_s, ref_n, ref_s, Q_n, Q_s, kmin=0, kmax=None, nugget=0, rho=None):
+        density, std_n, std_s, ls_n, ls_s, ref_n, ref_s, Q_n, Q_s, kmin=0, kmax=None, nugget=0, rho=None,
+        ignore_corr=False
+):
     Kf_n = fermi_momentum(density, 2)[:, None]
     Kf_s = fermi_momentum(density, 4)[:, None]
     # Convert symmetric matter kf and ell to neutron matter
@@ -818,6 +820,8 @@ def create_sym_energy_truncation_covariance(
     cov_s = cov[N:, N:]
     cov_ns = cov[:N, N:]
     cov_sn = cov[N:, :N]
+    if ignore_corr:
+        return cov_n + cov_s
     return cov_n + cov_s - cov_ns - cov_sn
 
 
@@ -2186,6 +2190,8 @@ class MatterConvergenceAnalysis(ConvergenceAnalysis):
         print('Order', order)
         print('x:', np.mean(x_min), '+/-', np.std(x_min))
         print('y:', np.mean(y_min), '+/-', np.std(y_min))
+        print('mean:\n', np.array([np.mean(x_min), np.mean(y_min)]))
+        print('cov:\n', np.cov(x_min, y_min))
 
         ellipse = confidence_ellipse(
             x_min, y_min, ax=ax, n_std=2, facecolor=light_color,
