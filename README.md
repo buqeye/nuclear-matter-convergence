@@ -4,8 +4,8 @@
 This repository contains the data and Jupyter notebooks to produce the figures
 in our publications:
 
-* [arXiv:XXX.XXX][shortPaper]   
-* [arXiv:YYY.YYY][longPaper]
+* [arXiv:2004.07232](How well do we know the neutron-matter equation of state at the densities inside neutron stars? A Bayesian approach with correlated uncertainties)   
+* [arXiv:2004.07805](Quantifying uncertainties and correlations in the nuclear-matter equation of state)
 
 
 ## Overview
