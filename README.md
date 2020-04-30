@@ -21,7 +21,7 @@ all the relevant Jupyter notebooks:
 * `derivatives.ipynb`: (add brief description or just keywords)
 * `symmetry_energy_input_space.ipynb`: (add brief description or just keywords)
 * `correlated_matter_analysis_refactored.ipynb`: (add brief description or just keywords)
-* `make_LaTeX_table.ipynb`: (add brief description or just keywords)
+* `make_LaTeX_table.ipynb`: Reads in data from nuclear matter calculations (both SNM and PNM) and outputs total energies at each EFT orders as a function of both density and Fermi momentum in the form of LaTeX tables.
 
 
 The directories `nuclear_matter`and `other_figures`contain the raw Python
