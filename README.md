@@ -4,8 +4,11 @@
 This repository contains the data and Jupyter notebooks to produce the figures
 in our publications:
 
-* *How well do we know the neutron-matter equation of state at the densities inside neutron stars? A Bayesian approach with correlated uncertainties*, [arXiv:2004.07232](https://arxiv.org/abs/2004.07232).
-* *Quantifying uncertainties and correlations in the nuclear-matter equation of state*, [arXiv:2004.07805](https://arxiv.org/abs/2004.07805).
+* Drischler, Furnstahl, Melendez, and Phillips, _How well do we know the neutron-matter equation of state at the densities
+inside neutron stars? A Bayesian approach with correlated uncertainties_, [arXiv:2004.07232](https://arxiv.org/abs/2004.07232).
+
+* Drischler, Melendez, Furnstahl, and Phillips, _Effective
+Field Theory Convergence Pattern of Infinite Nuclear Matter_, [arXiv:2004.07805](https://arxiv.org/abs/2004.07805).
 
 
 ## Overview
@@ -59,10 +62,10 @@ To report any issues please use the issue tracker.
 ## Citing this Work and Further Reading
 
 * Drischler, Furnstahl, Melendez, and Phillips, _How well do we know the neutron-matter equation of state at the densities
-inside neutron stars? A Bayesian approach with correlated uncertainties_, [arXiv:2004.07232](https://arxiv.org/abs/2004.07232)
+inside neutron stars? A Bayesian approach with correlated uncertainties_, [arXiv:2004.07232](https://arxiv.org/abs/2004.07232).
 
 * Drischler, Melendez, Furnstahl, and Phillips, _Effective
-Field Theory Convergence Pattern of Infinite Nuclear Matter_, [arXiv:2004.07805](https://arxiv.org/abs/2004.07805)
+Field Theory Convergence Pattern of Infinite Nuclear Matter_, [arXiv:2004.07805](https://arxiv.org/abs/2004.07805).
 
 
 
