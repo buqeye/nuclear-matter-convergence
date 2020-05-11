@@ -40,11 +40,11 @@ The columns in the files are given by:
 
 ## Hamiltonians
 
-For the 3N fits to the triton and nuclear matter see Figure 2 in the
+For the 3N fits to the triton and nuclear matter see Figure 1 in the
 Supplemental Material of [Drischler _et al._, Phys. Rev. Lett. **122**, 042501
 (2019)][DrischlerPRL]. A machine-readable compilation of all relevant LECs and
-cutoff values is provided in `DHS_hamiltonians_2017.par`. For  convenience, here
-is a simplified version.
+cutoff values is provided in `DHS_hamiltonians_2017.par`. For convenience, here
+is a simplified version:
 
 | \# | Chiral Order |	NN Potential |	cD  |  cE
 :---:|:-------------|:-------------|-----:|-----:|
