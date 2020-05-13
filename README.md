@@ -34,12 +34,17 @@ neutron matter and symmetric nuclear matter can be found in `data` and
 ## Requirements and Installations
 
 Installing and running our Jupyter notebooks is straightforward. `Python3` is
-required with the standard packages listed in `requirements.txt` installed. In
-addition, J. Melendez's package `gsum`, which is publicly available [here](gsum)
-including installation instructions, needs to be installed separately.
+required with the (standard) packages listed in `requirements.txt` installed.
+They can be installed by running the command:
+``` shell
+pip3 install -r requirements.txt
+```
+In addition, J. Melendez's package `gsum`, which is publicly available
+[here](gsum) including installation instructions, needs to be installed
+separately. Do not use `gsum` as installed by `pip3`.
 
-With these prerequisites, to install this repository simply run (at the top level):
-
+With these prerequisites, to install this repository simply run (at the top
+level):
 ```shell
 pip install .
 ```

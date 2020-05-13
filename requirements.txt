@@ -1,6 +1,5 @@
 docrep
 findiff
-gsum
 gptools
 matplotlib
 numpy
@@ -9,3 +8,4 @@ scikit-learn
 scipy
 seaborn
 sympy
+GPy
