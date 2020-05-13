@@ -9,6 +9,13 @@ import numpy as np
 
 
 def setup_rc_params(presentation=False):
+    """ set matplotlib's rc parameters for the plots
+
+        Parameters
+        ----------
+        presentation : boolean
+            increases font size (more readable) for talks if enabled
+    """"
     if presentation:
         fontsize = 11
     else:
@@ -264,12 +271,12 @@ def plot_empirical_saturation(ax=None, facecolor='lightgray', edgecolor='gray', 
     if ax is None:
         ax = plt.gca()
     from matplotlib.patches import Rectangle
-    # From Drischler 2018 arXiv:1710.08220
-    n0 = 0.164
-    n0_std = 0.007
-    y0 = -15.86
-    # y0_std = np.sqrt(0.37 ** 2 + 0.2 ** 2)
-    y0_std = 0.57  # They add the errors linearly
+    # From Drischler et al. (2017), arXiv:1710.08220
+    n0 = 0.164 # fm**-3
+    n0_std = 0.007 # fm**-3
+    y0 = -15.86 # MeV
+    y0_std = 0.57  # MeV; errors are added linearly
+    # y0_std = np.sqrt(0.37 ** 2 + 0.2 ** 2) # MeV; use this to add them in quadrature
     left = n0 - n0_std
     right = n0 + n0_std
     rect = Rectangle(
