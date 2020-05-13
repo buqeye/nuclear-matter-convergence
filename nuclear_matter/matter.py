@@ -19,14 +19,14 @@ def nuclear_density(momentum, degeneracy):
 
 
 def fermi_momentum(density, degeneracy):
-    R"""Computes the fermi momentum of infinite matter in inverse fermi
+    R"""Computes the Fermi momentum of infinite matter in inverse fermi
 
     Parameters
     ----------
     density : array
         The density in inverse fermi^3
     degeneracy : int
-        The degeneracy factor. Equals 2 for neutron matter and 4 for symmetric matter.
+        The degeneracy factor [g]. Equals 2 for neutron matter and 4 for symmetric matter.
     """
     return (6 * np.pi**2 * density / degeneracy)**(1./3)
 
@@ -38,7 +38,7 @@ def ratio_kf(momentum, breakdown=600):
     Parameters
     ----------
     momentum : array
-        The fermi momentum in inverse fermi
+        The Fermi momentum in inverse fermi
     breakdown: float, optional
         Breakdown scale (Lambda_b) in MeV; defaults to 600 MeV
     """
@@ -68,7 +68,7 @@ def Lb_prior(Lb, Lb_min=300, Lb_max=1000):
 
 def Lb_logprior(Lb, Lb_min=300, Lb_max=1000):
     R"""
-    Log uniform prior for the breakdown scale (Lambda_b aka Lb)
+    Log-uniform prior for the breakdown scale (Lambda_b aka Lb)
     """
     return np.where((Lb >= 300) & (Lb <= 1000), np.log(1 / Lb), -np.inf)
 
