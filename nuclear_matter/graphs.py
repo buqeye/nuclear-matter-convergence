@@ -9,13 +9,13 @@ import numpy as np
 
 
 def setup_rc_params(presentation=False):
-    """ set matplotlib's rc parameters for the plots
+    """Set matplotlib's rc parameters for the plots
 
         Parameters
         ----------
         presentation : boolean
             increases font size (more readable) for talks if enabled
-    """"
+    """
     if presentation:
         fontsize = 11
     else:
