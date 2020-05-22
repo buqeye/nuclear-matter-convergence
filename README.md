@@ -52,7 +52,7 @@ different empirical constraints incrementally. This is, in particular, useful
 for scientific talks and teaching.
 
 <p align="center">
-  <img width="380" src="analysis/Esym-L/incremental_plots/Lattimer_Esym_L_animated.gif">
+  <img width="380" src="analysis/Esym-L/incremental_plots/Esym_L_correlation_animated.gif">
 </p>
 
 
