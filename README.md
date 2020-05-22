@@ -13,22 +13,15 @@ Field Theory Convergence Pattern of Infinite Nuclear Matter_, [arXiv:2004.07805]
 
 ## Overview
 
-This repository is organized as follows: The directory `analysis` contains
-all the relevant Jupyter notebooks:
-* `3BF_convergence.ipynb`: (add brief description or just keywords)
-* `derivatives-bands.ipynb`: (add brief description or just keywords)
-* `saturation_analysis.ipynb`: (add brief description or just keywords)
-* `derivatives.ipynb`: (add brief description or just keywords)
-* `symmetry_energy_input_space.ipynb`: (add brief description or just keywords)
-* `correlated_matter_analysis_refactored.ipynb`: (add brief description or just keywords)
-* `make_LaTeX_table.ipynb`: Reads in data from nuclear matter calculations (both SNM and PNM) and outputs total energies at each EFT order as a function of both density and Fermi momentum in the form of LaTeX tables.
-
-
-The directories `nuclear_matter`and `other_figures`contain the raw Python
-implementation, helper functions, etc. and additional figures not shown in the
-papers (e.g., for talks), respectively. The raw data for the equation of state of
+The directory `analysis` contains all the relevant Jupyter notebooks, including
+the main notebooks `derivatives-bands.ipynb` and
+`correlated_matter_analysis_refactored.ipynb`, which generate the figures in our
+papers. The directories `nuclear_matter` and `other_figures` contain the raw
+Python implementation, helper functions, etc. and additional figures not shown
+in the papers (e.g., for talks). The raw data for the equation of state of
 neutron matter and symmetric nuclear matter can be found in `data` and
-`raw_data`.
+`raw_data`. More information can be found in the README files as well as in the
+annotated notebooks.
 
 
 ## Requirements and Installations
