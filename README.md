@@ -33,7 +33,7 @@ They can be installed by running the command:
 pip3 install -r requirements.txt
 ```
 In addition, J. Melendez's package `gsum`, which is publicly available
-[here](gsum) including installation instructions, needs to be installed
+[here](https://github.com/buqeye/gsum) including installation instructions, needs to be installed
 separately. Do not use `gsum` as installed by `pip3`.
 
 With these prerequisites, to install this repository simply run (at the top
